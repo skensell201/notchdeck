@@ -32,6 +32,33 @@ struct NotchReducerPeekTests {
         #expect(transition.effects.isEmpty)
     }
 
+    @Test("a live activity never interrupts a pinned notch")
+    func liveActivityDoesNotInterruptPinned() {
+        let pinned = NotchState(mode: .pinned, pointerInside: false)
+        let transition = NotchReducer.reduce(state: pinned, event: .liveActivity(charging))
+
+        #expect(transition.state.mode == .pinned)
+        #expect(transition.effects.isEmpty)
+    }
+
+    @Test("entering and then leaving a peek before it times out re-arms its own timeout")
+    func exitingPeekRearmsTimeout() {
+        let entered = NotchReducer.reduce(state: NotchState(mode: .peek(charging)), event: .pointerEntered).state
+        let transition = NotchReducer.reduce(state: entered, event: .pointerExited)
+
+        #expect(transition.state.mode == .peek(charging))
+        #expect(transition.effects == [.cancelHoverDwell, .schedulePeekTimeout(.seconds(2))])
+    }
+
+    @Test("a peek timeout re-armed after a hover-and-leave still closes the notch")
+    func rearmedPeekTimeoutCloses() {
+        var state = NotchReducer.reduce(state: NotchState(mode: .peek(charging)), event: .pointerEntered).state
+        state = NotchReducer.reduce(state: state, event: .pointerExited).state
+        let transition = NotchReducer.reduce(state: state, event: .peekTimeoutElapsed)
+
+        #expect(transition.state.mode == .closed)
+    }
+
     @Test("the peek timeout collapses the notch")
     func peekTimeoutCloses() {
         let peeking = NotchState(mode: .peek(charging))

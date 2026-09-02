@@ -17,8 +17,10 @@ public enum NotchReducer {
         case .pointerExited:
             state.pointerInside = false
             switch state.mode {
-            case .closed, .peek:
+            case .closed:
                 return NotchTransition(state: state, effects: [.cancelHoverDwell])
+            case .peek(let payload):
+                return NotchTransition(state: state, effects: [.cancelHoverDwell, .schedulePeekTimeout(payload.duration)])
             case .open:
                 return NotchTransition(state: state, effects: [.scheduleExitGrace])
             case .pinned:
@@ -69,6 +71,9 @@ public enum NotchReducer {
             }
 
         case .clickedOutside, .escapePressed:
+            // Deliberately leaves `pointerInside` untouched: dismissing while the
+            // pointer is still over the notch must not spring it back open. It
+            // stays closed until the pointer leaves and re-enters.
             switch state.mode {
             case .open, .pinned:
                 state.mode = .closed

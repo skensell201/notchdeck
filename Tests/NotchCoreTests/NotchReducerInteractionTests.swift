@@ -70,6 +70,16 @@ struct NotchReducerInteractionTests {
         #expect(transition.state.mode == .closed)
     }
 
+    @Test("escape while the pointer is still inside closes without leaving anything to spring it back open")
+    func escapeWithPointerInsideStaysClosed() {
+        let pinned = NotchState(mode: .pinned, pointerInside: true)
+        let transition = NotchReducer.reduce(state: pinned, event: .escapePressed)
+
+        #expect(transition.state.mode == .closed)
+        #expect(transition.state.pointerInside)
+        #expect(transition.effects == [.cancelExitGrace, .cancelHoverDwell])
+    }
+
     @Test("clicking outside a closed notch does nothing")
     func clickOutsideClosedIsIgnored() {
         let transition = NotchReducer.reduce(state: .closed, event: .clickedOutside)

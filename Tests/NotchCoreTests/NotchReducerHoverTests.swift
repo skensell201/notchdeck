@@ -64,4 +64,12 @@ struct NotchReducerHoverTests {
 
         #expect(transition.state.mode == .closed)
     }
+
+    @Test("a stale grace timer firing after the pointer returned leaves the notch open")
+    func staleGraceIsIgnored() {
+        let returned = NotchState(mode: .open, pointerInside: true)
+        let transition = NotchReducer.reduce(state: returned, event: .exitGraceElapsed)
+
+        #expect(transition.state.mode == .open)
+    }
 }
