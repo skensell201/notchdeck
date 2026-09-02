@@ -138,7 +138,7 @@ Timing constants (hover dwell, exit grace, peek duration) are injected, not hard
 | Clipboard | Poll `NSPasteboard.general.changeCount` at ~0.3s; skip items marked transient/concealed and app exclusions | — |
 | System HUD replacement | Intercept media/brightness keys and suspend `OSDUIHelper` while the feature is on; restore on quit | Feature is off by default and documented as fragile across macOS updates |
 | Battery and stats | IOKit power sources, `host_statistics64`, network interface counters | — |
-| Accessibility permission | Required for the global event monitor; requested on first launch with a clear explanation | The app still works via panel-local tracking, with reduced gesture support |
+| Accessibility permission | Not required for pointer and scroll monitoring. Only global *keyboard* monitoring — Esc to dismiss and media key interception — needs it, so it is requested lazily in P3/P4 | Those two features stay off, with an explanation, until access is granted |
 
 ### 3.1 Code signing
 
@@ -173,7 +173,7 @@ Not unit tested (verified manually per phase): panel levels and hit-testing, ani
 Each phase ends with a runnable app. Each gets its own implementation plan.
 
 **P0 — Skeleton**
-Repo, `Package.swift`, `bundle.sh`, `make-dev-cert.sh`, menu bar item with quit and settings, notch panel on every screen that expands on hover and closes on exit, click-through outside the shape, synthetic notch on notchless displays.
+Repo, `Package.swift`, `bundle.sh`, `make-dev-cert.sh`, menu bar item with open and quit, notch panel on every screen that expands on hover and closes on exit, click-through outside the shape, synthetic notch on notchless displays.
 Tests: state reducer, screen geometry, gesture router.
 
 **P1 — Core value**
