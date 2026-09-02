@@ -18,13 +18,26 @@ public final class NotchController {
         self.scheduler = scheduler
     }
 
+    deinit {
+        hoverDwell?.cancel()
+        exitGrace?.cancel()
+        peekTimeout?.cancel()
+    }
+
     public func send(_ event: NotchEvent) {
         let transition = NotchReducer.reduce(state: state, event: event)
+        let didChange = transition.state != state
         state = transition.state
         for effect in transition.effects {
             apply(effect)
         }
-        onStateChange?(state)
+        // Pass `state` (the property), not `transition.state`: if an observer
+        // re-enters with `send`, `state` will already reflect that later
+        // transition by the time this callback runs, so the observer always
+        // sees the latest value rather than a stale snapshot captured here.
+        if didChange {
+            onStateChange?(state)
+        }
     }
 
     private func apply(_ effect: NotchEffect) {
@@ -52,9 +65,7 @@ public final class NotchController {
 
     private func schedule(after delay: Duration, event: NotchEvent) -> any NotchCancellable {
         scheduler.schedule(after: delay) { [weak self] in
-            MainActor.assumeIsolated {
-                self?.send(event)
-            }
+            self?.send(event)
         }
     }
 }
