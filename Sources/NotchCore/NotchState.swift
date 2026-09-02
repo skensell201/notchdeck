@@ -20,6 +20,14 @@ public enum NotchMode: Equatable, Sendable {
     case open
     /// Expanded and held open until dismissed explicitly.
     case pinned
+
+    /// Whether this mode draws the full expanded surface.
+    public var isExpanded: Bool {
+        switch self {
+        case .open, .pinned: true
+        case .closed, .peek: false
+        }
+    }
 }
 
 public struct NotchState: Equatable, Sendable {
@@ -33,10 +41,5 @@ public struct NotchState: Equatable, Sendable {
 
     public static let closed = NotchState()
 
-    public var isExpanded: Bool {
-        switch mode {
-        case .open, .pinned: true
-        case .closed, .peek: false
-        }
-    }
+    public var isExpanded: Bool { mode.isExpanded }
 }

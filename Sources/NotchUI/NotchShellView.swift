@@ -2,25 +2,39 @@ import NotchCore
 import SwiftUI
 
 public struct NotchShellView: View {
-    @Bindable private var model: NotchViewModel
+    private let model: NotchViewModel
 
     public init(model: NotchViewModel) {
-        self._model = Bindable(model)
+        self.model = model
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            NotchShape(
-                topCornerRadius: model.isExpandedMode ? 10 : 6,
-                bottomCornerRadius: model.isExpandedMode ? 22 : 10
-            )
-            .fill(.black)
-            .frame(width: model.targetSize.width, height: model.targetSize.height)
-            .overlay(alignment: .center) { content }
-            .animation(.spring(response: 0.34, dampingFraction: 0.78), value: model.targetSize)
+            shape
+                .fill(.black)
+                .frame(width: model.targetSize.width, height: model.targetSize.height)
+                // The shell's root fills the hosting view, which in turn fills the
+                // container view, so `.global` here is the hosting view's own
+                // top-left-origin space — exactly what the container hit-tests in.
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .global)
+                } action: { frame in
+                    model.presentedRectInView = frame
+                }
+                .overlay(alignment: .top) { content }
+                .clipShape(shape)
+                .animation(.spring(response: 0.34, dampingFraction: 0.78), value: model.targetSize)
+                .animation(.spring(response: 0.34, dampingFraction: 0.78), value: model.mode)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var shape: NotchShape {
+        NotchShape(
+            topCornerRadius: model.mode.isExpanded ? 10 : 6,
+            bottomCornerRadius: model.mode.isExpanded ? 22 : 10
+        )
     }
 
     @ViewBuilder
@@ -32,6 +46,10 @@ public struct NotchShellView: View {
             Text(payload.id)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, model.closedFlare + 4)
+                .frame(maxHeight: .infinity)
                 .transition(.opacity)
         case .open, .pinned:
             VStack(spacing: 8) {
@@ -44,15 +62,6 @@ public struct NotchShellView: View {
             }
             .padding(.top, model.metrics.rect.height)
             .transition(.opacity)
-        }
-    }
-}
-
-extension NotchViewModel {
-    var isExpandedMode: Bool {
-        switch mode {
-        case .open, .pinned: true
-        case .closed, .peek: false
         }
     }
 }

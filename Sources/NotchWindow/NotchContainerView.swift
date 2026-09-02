@@ -5,11 +5,12 @@ import AppKit
 /// surface should react to the mouse; everything else must fall through to the
 /// app underneath.
 public final class NotchContainerView: NSView {
-    /// The interactive area in this view's coordinate space.
+    /// The interactive area in this view's coordinate space (origin top-left,
+    /// y down — this view is flipped). Assigned on every animation frame, so the
+    /// guard keeps any work added here off the redundant path.
     public var interactiveRect: NSRect = .zero {
         didSet {
             guard interactiveRect != oldValue else { return }
-            window?.invalidateCursorRects(for: self)
         }
     }
 
@@ -18,6 +19,11 @@ public final class NotchContainerView: NSView {
         guard interactiveRect.contains(local) else { return nil }
         return super.hitTest(point)
     }
+
+    /// The app is an accessory and this panel can never become key, so every
+    /// click is a "first click". Without this, AppKit swallows all of them as
+    /// activation clicks and `mouseDown` never arrives.
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     public override var isFlipped: Bool { true }
 }

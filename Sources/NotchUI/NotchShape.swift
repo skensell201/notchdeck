@@ -20,8 +20,8 @@ public struct NotchShape: Shape {
     }
 
     public func path(in rect: CGRect) -> Path {
-        let top = min(topCornerRadius, rect.width / 2)
-        let bottom = min(bottomCornerRadius, rect.width / 2, rect.height)
+        let top = min(topCornerRadius, rect.width / 2, rect.height)
+        let bottom = min(bottomCornerRadius, (rect.width - 2 * top) / 2, rect.height - top)
 
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
