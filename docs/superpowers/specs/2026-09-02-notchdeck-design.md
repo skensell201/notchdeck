@@ -173,7 +173,7 @@ Not unit tested (verified manually per phase): panel levels and hit-testing, ani
 Each phase ends with a runnable app. Each gets its own implementation plan.
 
 **P0 — Skeleton**
-Repo, `Package.swift`, `bundle.sh`, `make-dev-cert.sh`, menu bar item with open and quit, notch panel on every screen that expands on hover and closes on exit, click-through outside the shape, synthetic notch on notchless displays.
+Repo, `Package.swift`, `bundle.sh`, `make-dev-cert.sh`, `README`, menu bar item with open and quit, notch panel on every screen that expands on hover and scroll and closes on exit, click-through outside the shape, synthetic notch on notchless displays.
 Tests: state reducer, screen geometry, gesture router.
 
 **P1 — Core value**
@@ -188,7 +188,7 @@ Tests: clipboard store, timer cycles.
 Charging, volume, brightness, Bluetooth/AirPods, Focus, drop confirmation, timer completion; `OSDUIHelper` suppression with per-event toggles.
 
 **P4 — Settings and release**
-Full settings window, launch at login, notch geometry tuning per screen, permission status panel, DMG build script, README.
+Full settings window, launch at login, notch geometry tuning per screen, permission status panel, DMG build script.
 
 ---
 
