@@ -37,6 +37,7 @@ The notch reducer deliberately ignores `.scrolled(.left)` and `.scrolled(.right)
 | `Sources/NotchUI/NotchModule.swift` | The view-producing module protocol |
 | `Sources/NotchUI/ModuleRegistry.swift` | Holds modules, honours the layout, owns tab selection |
 | `Sources/NotchUI/ModuleTabStrip.swift` | The tab strip in the expanded panel |
+| `Sources/NotchUI/NotchAppearance.swift` | Rim, glow and shadow tunables for the shell |
 | `Sources/Media/NowPlaying.swift` | The snapshot model |
 | `Sources/Media/PayloadDelta.swift` | Decoding one stream payload, distinguishing absent from null |
 | `Sources/Media/NowPlayingDecoder.swift` | Merges the diff protocol into a snapshot |
@@ -477,6 +478,177 @@ Expected: succeeds. `swift test` still green.
 ```bash
 git add Sources/NotchUI
 git commit -m "feat: host modules in the notch shell behind a tab strip"
+```
+
+---
+
+## Task 3A: Notch shell appearance
+
+**Files:**
+- Create: `Sources/NotchUI/NotchAppearance.swift`
+- Modify: `Sources/NotchUI/NotchShellView.swift`
+- Modify: `Sources/NotchUI/NotchViewModel.swift`
+- Modify: `README.md`
+
+The shell is currently a flat black silhouette. Against a dark wallpaper it
+disappears; against a light one it is a hard-edged slab. It needs a soft glow that
+separates it from what is behind it — and that glow must fade to nothing at the top
+edge, where the panel meets the menu bar and the display bezel, so the notch reads
+as something emerging from the top of the screen rather than a rectangle stuck onto
+it.
+
+**The constraint that shapes the implementation:** the panel window is exactly
+`maximumSize`, and the expanded shape fills it completely, so any glow drawn
+outside the shape is clipped away at the window edge. The window has to reserve a
+margin for the bloom, and the shape has to be inset by that margin — while hit
+testing and `presentedRectInView` keep tracking the shape, never the margin.
+
+- [ ] **Step 1: Write the appearance tunables**
+
+`Sources/NotchUI/NotchAppearance.swift`:
+
+```swift
+import CoreGraphics
+
+/// Everything about how the notch shell is painted, in one place, so it can be
+/// tuned without touching layout.
+public struct NotchAppearance: Equatable, Sendable {
+    /// A hairline along the shape's edge, catching light like a physical bevel.
+    public var rimWidth: CGFloat
+    public var rimOpacity: Double
+    /// Where the rim reaches full strength, as a fraction of the shape's height.
+    /// The rim starts at zero along the top edge so it never draws a bright line
+    /// across the menu bar.
+    public var rimFadeEnd: Double
+
+    /// A soft bloom outside the shape. Offset downwards for the same reason.
+    public var glowRadius: CGFloat
+    public var glowOpacity: Double
+    public var glowOffset: CGFloat
+
+    /// A dark drop shadow, which is what separates the panel on a light wallpaper
+    /// where a white glow is invisible.
+    public var shadowRadius: CGFloat
+    public var shadowOpacity: Double
+
+    /// Room the panel reserves around the shape so the bloom is not clipped at the
+    /// window edge. Nothing is reserved above the shape: the top edge is flush
+    /// with the screen and there is nowhere to bleed into.
+    public var bloomMargin: CGFloat {
+        max(glowRadius + glowOffset, shadowRadius) * 2
+    }
+
+    public init(
+        rimWidth: CGFloat = 1,
+        rimOpacity: Double = 0.22,
+        rimFadeEnd: Double = 0.45,
+        glowRadius: CGFloat = 14,
+        glowOpacity: Double = 0.10,
+        glowOffset: CGFloat = 5,
+        shadowRadius: CGFloat = 18,
+        shadowOpacity: Double = 0.45
+    ) {
+        self.rimWidth = rimWidth
+        self.rimOpacity = rimOpacity
+        self.rimFadeEnd = rimFadeEnd
+        self.glowRadius = glowRadius
+        self.glowOpacity = glowOpacity
+        self.glowOffset = glowOffset
+        self.shadowRadius = shadowRadius
+        self.shadowOpacity = shadowOpacity
+    }
+}
+```
+
+- [ ] **Step 2: Reserve room for the bloom**
+
+In `NotchViewModel`, add `public let appearance: NotchAppearance` (defaulted in
+`init`), and widen `maximumSize` by `appearance.bloomMargin` in both dimensions.
+
+Leave `targetSize` and `surfaceRectInScreen` alone: they describe the shape, and
+hover, hit testing and the presented rect must keep following the shape rather than
+the margin. Only the window's reserved footprint grows.
+
+Because `NotchSurface` derives the panel frame from `maximumSize`, this alone gives
+the bloom somewhere to land. Confirm the panel still anchors its **shape** to the
+screen's top edge afterwards — the margin must be added below and to the sides, not
+above, or the notch will float a few points down from the bezel.
+
+- [ ] **Step 3: Paint the shell**
+
+In `NotchShellView`, replace the bare `shape.fill(.black)` with:
+
+```swift
+            shape
+                .fill(.black)
+                .overlay {
+                    // A hairline that fades out completely along the top edge, so
+                    // nothing draws a bright line across the menu bar.
+                    shape
+                        .stroke(.white, lineWidth: model.appearance.rimWidth)
+                        .mask {
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .white, location: model.appearance.rimFadeEnd)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                        .opacity(model.appearance.rimOpacity)
+                        .blendMode(.plusLighter)
+                }
+                .compositingGroup()
+                .shadow(
+                    color: .black.opacity(model.appearance.shadowOpacity),
+                    radius: model.appearance.shadowRadius,
+                    y: model.appearance.glowOffset
+                )
+                .shadow(
+                    color: .white.opacity(model.appearance.glowOpacity),
+                    radius: model.appearance.glowRadius,
+                    y: model.appearance.glowOffset
+                )
+                .frame(width: model.targetSize.width, height: model.targetSize.height)
+```
+
+Both shadows are offset downwards so neither blooms above the top edge.
+`compositingGroup` makes the shadows apply to the composed shape-plus-rim rather
+than to each layer separately.
+
+The `.frame` stays where it is in the modifier order — after the paint, before
+`onGeometryChange` — so the measured rect is still the shape's, not the bloom's.
+
+- [ ] **Step 4: Build and look at it**
+
+```bash
+swift build && swift test
+./Scripts/run.sh
+```
+
+Then judge it by eye against both a dark and a light wallpaper. The numbers above
+are a starting point, not a result: expect to tune `rimOpacity`, `glowOpacity` and
+`rimFadeEnd` once you can see them. What must hold regardless of the values:
+
+- nothing brightens the menu bar along the top edge
+- the collapsed notch is findable on a dark wallpaper without being loud
+- the expanded panel is clearly separated from a light wallpaper
+
+- [ ] **Step 5: Add to the verification checklist**
+
+In `README.md`:
+
+- [ ] On a dark wallpaper the collapsed notch is visible enough to aim at.
+- [ ] On a light wallpaper the expanded panel has a clear edge and does not look pasted on.
+- [ ] No glow or bright line appears above the panel, across the menu bar or the bezel.
+- [ ] Clicks still pass through the reserved margin around the panel — the bloom must not swallow them.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add Sources/NotchUI README.md
+git commit -m "feat: give the notch shell a rim and glow that fade at the top edge"
 ```
 
 ---
