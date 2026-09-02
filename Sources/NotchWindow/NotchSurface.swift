@@ -21,12 +21,7 @@ public final class NotchSurface {
         self.model = model
 
         let maximum = model.maximumSize
-        let frame = NSRect(
-            x: metrics.rect.midX - maximum.width / 2,
-            y: metrics.rect.maxY - maximum.height,
-            width: maximum.width,
-            height: maximum.height
-        )
+        let frame = Self.panelFrame(metrics: metrics, maximum: maximum)
 
         panel = NotchPanel(contentRect: frame)
         container = NotchContainerView(frame: NSRect(origin: .zero, size: maximum))
@@ -35,8 +30,13 @@ public final class NotchSurface {
         // lands on the container. The hosting view fills the container, so the
         // presented rect is already in the container's flipped coordinate space —
         // no conversion, and the clickable area tracks the animation frame by frame.
-        model.onPresentedRectChange = { [container] rect in
-            container.interactiveRect = rect
+        //
+        // Captured weakly: `model` outlives `container` in the leak case (display
+        // disconnect drops the surface but not the model's subscribers), so a
+        // strong capture here would keep the container — and the hosting view and
+        // `NotchShellView` it holds — alive forever via model -> closure -> container.
+        model.onPresentedRectChange = { [weak container] rect in
+            container?.interactiveRect = rect
         }
 
         let hosting = NSHostingView(rootView: NotchShellView(model: model))
@@ -65,7 +65,36 @@ public final class NotchSurface {
         model.mode = mode
     }
 
+    /// Re-resolves this surface against its screen's current geometry. A display
+    /// that stays connected can still change resolution, scale or arrangement, and
+    /// `maximumSize` depends on the notch width, so the panel and container both
+    /// have to be resized, not just repositioned.
+    public func update(screen: NSScreen, syntheticSize: CGSize) {
+        let metrics = NotchResolver.resolve(screen: screen.notchDescription, syntheticSize: syntheticSize)
+        guard metrics != model.metrics else { return }
+
+        model.metrics = metrics
+        let maximum = model.maximumSize
+        panel.setFrame(Self.panelFrame(metrics: metrics, maximum: maximum), display: true)
+        container.frame = NSRect(origin: .zero, size: maximum)
+    }
+
     public func close() {
+        // Torn down deterministically rather than relying on deallocation order:
+        // once the panel is ordered out nothing should still be pushing frames
+        // into a detached container.
+        model.onPresentedRectChange = nil
         panel.orderOut(nil)
+    }
+
+    /// The panel always reserves the largest size any mode needs, anchored so its
+    /// top edge sits on the screen's top edge and its centre lines up with the notch.
+    private static func panelFrame(metrics: NotchMetrics, maximum: CGSize) -> NSRect {
+        NSRect(
+            x: metrics.rect.midX - maximum.width / 2,
+            y: metrics.rect.maxY - maximum.height,
+            width: maximum.width,
+            height: maximum.height
+        )
     }
 }

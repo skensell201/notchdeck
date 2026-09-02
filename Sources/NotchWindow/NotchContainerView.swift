@@ -6,13 +6,8 @@ import AppKit
 /// app underneath.
 public final class NotchContainerView: NSView {
     /// The interactive area in this view's coordinate space (origin top-left,
-    /// y down — this view is flipped). Assigned on every animation frame, so the
-    /// guard keeps any work added here off the redundant path.
-    public var interactiveRect: NSRect = .zero {
-        didSet {
-            guard interactiveRect != oldValue else { return }
-        }
-    }
+    /// y down — this view is flipped). Assigned on every animation frame.
+    public var interactiveRect: NSRect = .zero
 
     public override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)

@@ -52,8 +52,15 @@ public final class NotchSurfaceManager {
         }
 
         for screen in NSScreen.screens {
-            guard let id = screen.displayID, surfaces[id] == nil else { continue }
-            surfaces[id] = NotchSurface(screen: screen, displayID: id, syntheticSize: syntheticSize)
+            guard let id = screen.displayID else {
+                logger.error("skipping a screen with no display ID; it will have no notch")
+                continue
+            }
+            if let existing = surfaces[id] {
+                existing.update(screen: screen, syntheticSize: syntheticSize)
+            } else {
+                surfaces[id] = NotchSurface(screen: screen, displayID: id, syntheticSize: syntheticSize)
+            }
         }
 
         logger.info("rebuilt \(self.surfaces.count, privacy: .public) notch surfaces")
