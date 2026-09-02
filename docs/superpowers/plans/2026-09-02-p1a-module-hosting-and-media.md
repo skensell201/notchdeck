@@ -260,8 +260,12 @@ public protocol NotchModule: AnyObject {
     var title: String { get }
     var symbolName: String { get }
 
-    /// Called when the module becomes visible and when it is hidden. A module
-    /// must release subprocesses, timers and pollers in `deactivate`.
+    /// Called when the module becomes visible and when it is hidden.
+    ///
+    /// `deactivate` must release everything that only the open panel needed —
+    /// timers, pollers, capture sessions. A module that feeds `peekView()` keeps
+    /// that one source running, because the collapsed notch still shows it; the
+    /// media module is the example, and it stops only its redraw tick.
     func activate()
     func deactivate()
 
@@ -1693,9 +1697,15 @@ public final class MediaModule: NotchModule {
     // MARK: NotchModule
 
     public func activate() {
-        guard streamTask == nil else { return }
-        startStream()
-        startTicking()
+        // Both halves are independently idempotent: the stream starts once and
+        // outlives the panel, while the tick is panel-scoped and restarts every
+        // time the notch opens.
+        if streamTask == nil {
+            startStream()
+        }
+        if tickTask == nil {
+            startTicking()
+        }
     }
 
     public func deactivate() {
@@ -1712,7 +1722,7 @@ public final class MediaModule: NotchModule {
 
     public func peekView() -> AnyView? {
         guard let state, isFresh(state) else { return nil }
-        return AnyView(MediaPeekView(module: self, state: state))
+        return AnyView(MediaPeekView(state: state))
     }
 
     // MARK: Playback
@@ -1958,7 +1968,6 @@ The peek fills the widened collapsed notch: artwork on one side of the camera ho
 import SwiftUI
 
 struct MediaPeekView: View {
-    let module: MediaModule
     let state: NowPlaying
 
     var body: some View {
