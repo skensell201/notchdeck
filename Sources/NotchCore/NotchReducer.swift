@@ -77,7 +77,33 @@ public enum NotchReducer {
                 return NotchTransition(state: state)
             }
 
-        default:
+        case .dragEntered:
+            switch state.mode {
+            case .closed, .peek:
+                state.mode = .open
+                return NotchTransition(state: state, effects: [.cancelHoverDwell, .cancelPeekTimeout])
+            case .open, .pinned:
+                return NotchTransition(state: state, effects: [.cancelExitGrace])
+            }
+
+        case .dragExited:
+            guard case .open = state.mode, !state.pointerInside else {
+                return NotchTransition(state: state)
+            }
+            return NotchTransition(state: state, effects: [.scheduleExitGrace])
+
+        case .liveActivity(let payload):
+            switch state.mode {
+            case .closed, .peek:
+                state.mode = .peek(payload)
+                return NotchTransition(state: state, effects: [.schedulePeekTimeout(payload.duration)])
+            case .open, .pinned:
+                return NotchTransition(state: state)
+            }
+
+        case .peekTimeoutElapsed:
+            guard case .peek = state.mode else { return NotchTransition(state: state) }
+            state.mode = .closed
             return NotchTransition(state: state)
         }
     }
