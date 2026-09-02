@@ -10,9 +10,9 @@ let package = Package(
     targets: [
         .target(name: "Support"),
         .target(name: "NotchCore", dependencies: ["Support"]),
-        .target(name: "NotchWindow", dependencies: ["NotchCore"]),
-        .target(name: "NotchUI", dependencies: ["NotchWindow"]),
-        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchUI"]),
+        .target(name: "NotchUI", dependencies: ["NotchCore"]),
+        .target(name: "NotchWindow", dependencies: ["NotchCore", "NotchUI", "Support"]),
+        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchWindow", "Support"]),
         .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore"])
     ]
 )
