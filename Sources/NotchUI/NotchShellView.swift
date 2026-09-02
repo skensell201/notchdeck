@@ -23,8 +23,13 @@ public struct NotchShellView: View {
                 }
                 .overlay(alignment: .top) { content }
                 .clipShape(shape)
-                .animation(.spring(response: 0.34, dampingFraction: 0.78), value: model.targetSize)
-                .animation(.spring(response: 0.34, dampingFraction: 0.78), value: model.mode)
+                // One animation scope, not two: separate modifiers on `targetSize`
+                // and `mode` nest, and the same change then drives both.
+                //
+                // `.smooth` rather than a spring: a bouncy curve overshoots the
+                // final size, and the shape is anchored to the screen edge, so the
+                // overshoot reads as the panel wobbling rather than settling.
+                .animation(.smooth(duration: 0.3), value: model.mode)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -49,7 +54,7 @@ public struct NotchShellView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .padding(.horizontal, model.closedFlare + 4)
-                .frame(maxHeight: .infinity)
+                .frame(width: model.peekSize.width, height: model.peekSize.height)
                 .transition(.opacity)
         case .open, .pinned:
             VStack(spacing: 8) {
@@ -61,6 +66,11 @@ public struct NotchShellView: View {
                     .foregroundStyle(.white.opacity(0.6))
             }
             .padding(.top, model.metrics.rect.height)
+            // Laid out at the final size from the first frame. An overlay is
+            // proposed its parent's *current* size, so without this the text is
+            // squeezed into the collapsed notch, wraps, and unwraps again as the
+            // panel grows — which is what made the expansion look like it swam.
+            .frame(width: model.openSize.width, height: model.openSize.height)
             .transition(.opacity)
         }
     }

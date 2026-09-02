@@ -31,6 +31,12 @@ public final class NotchViewModel {
     }
 
     /// The size the notch surface should currently occupy.
+    /// The size the peek band settles at. Content is laid out at this size for the
+    /// whole animation so it never reflows while the panel is in flight.
+    public var peekSize: CGSize {
+        CGSize(width: metrics.rect.width + peekSideWidth * 2, height: metrics.rect.height)
+    }
+
     public var targetSize: CGSize {
         switch mode {
         case .closed:
@@ -54,11 +60,21 @@ public final class NotchViewModel {
         )
     }
 
-    /// The rect that should swallow mouse events, in global screen coordinates,
-    /// origin bottom-left, y up.
+    /// The rect that counts as "the pointer is on the notch", in global screen
+    /// coordinates, origin bottom-left, y up.
+    ///
+    /// This tracks the drawn shape, not the panel's reserved footprint: the panel
+    /// always reserves the largest size any mode needs, and hovering that while
+    /// collapsed would open the notch from most of the top of the screen, well
+    /// outside anything the user can see.
     public var surfaceRectInScreen: CGRect {
-        let size = targetSize
-        return CGRect(
+        rectInScreen(size: targetSize)
+    }
+
+    /// Every notch rect shares an anchor: centred on the notch, top edge flush
+    /// with the screen's top edge.
+    private func rectInScreen(size: CGSize) -> CGRect {
+        CGRect(
             x: metrics.rect.midX - size.width / 2,
             y: metrics.rect.maxY - size.height,
             width: size.width,
