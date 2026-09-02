@@ -23,20 +23,26 @@ public enum NotchResolver {
            let right = screen.auxiliaryTopRightArea,
            screen.topSafeAreaInset > 0,
            right.minX > left.maxX {
+            // Every edge comes from the auxiliary rects, which are self-consistent;
+            // `topSafeAreaInset` is only the signal that a notch exists at all.
             let rect = CGRect(
                 x: left.maxX,
-                y: screen.frame.maxY - screen.topSafeAreaInset,
+                y: left.minY,
                 width: right.minX - left.maxX,
-                height: screen.topSafeAreaInset
+                height: left.height
             )
             return NotchMetrics(rect: rect, kind: .physical)
         }
 
+        // Clamp to the display, and keep the origin integral so the rect stays
+        // crisp on non-Retina externals.
+        let width = min(syntheticSize.width, screen.frame.width)
+        let height = min(syntheticSize.height, screen.frame.height)
         let rect = CGRect(
-            x: screen.frame.midX - syntheticSize.width / 2,
-            y: screen.frame.maxY - syntheticSize.height,
-            width: syntheticSize.width,
-            height: syntheticSize.height
+            x: (screen.frame.midX - width / 2).rounded(),
+            y: screen.frame.maxY - height,
+            width: width,
+            height: height
         )
         return NotchMetrics(rect: rect, kind: .synthetic)
     }

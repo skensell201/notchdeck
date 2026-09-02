@@ -79,4 +79,34 @@ struct NotchResolverTests {
 
         #expect(metrics.rect.midX == -960)
     }
+
+    @Test("a synthetic notch larger than the display is clamped to it")
+    func oversizedSyntheticIsClamped() {
+        let small = ScreenDescription(
+            frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            topSafeAreaInset: 0,
+            auxiliaryTopLeftArea: nil,
+            auxiliaryTopRightArea: nil
+        )
+
+        let metrics = NotchResolver.resolve(screen: small, syntheticSize: CGSize(width: 2000, height: 2000))
+
+        #expect(metrics.kind == .synthetic)
+        #expect(metrics.rect == CGRect(x: 0, y: 0, width: 1512, height: 982))
+    }
+
+    @Test("a synthetic notch lands on an integral x origin")
+    func syntheticOriginIsIntegral() {
+        let oddWidth = ScreenDescription(
+            frame: CGRect(x: 0, y: 0, width: 1365, height: 768),
+            topSafeAreaInset: 0,
+            auxiliaryTopLeftArea: nil,
+            auxiliaryTopRightArea: nil
+        )
+
+        let metrics = NotchResolver.resolve(screen: oddWidth, syntheticSize: syntheticSize)
+
+        #expect(metrics.rect.origin.x == 583)
+        #expect(metrics.rect.origin.x == metrics.rect.origin.x.rounded())
+    }
 }
