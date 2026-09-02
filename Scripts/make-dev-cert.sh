@@ -53,5 +53,20 @@ openssl pkcs12 -export ${LEGACY:+$LEGACY} -inkey "$TMP/key.pem" -in "$TMP/cert.p
 security import "$TMP/identity.p12" -k "$KEYCHAIN" -T /usr/bin/codesign -P "$PASSWORD"
 security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$TMP/cert.pem"
 
+# The `-T /usr/bin/codesign` ACL entry above is not enough on modern macOS: the
+# imported key's partition list stays empty, and `codesign` throws up a GUI
+# "wants to sign using key in your keychain" prompt on every invocation. Setting
+# the partition list requires unlocking the keychain with its own password.
+echo "Enter your login keychain password to let codesign use this key without prompting each build:"
+read -rs LOGIN_PASSWORD
+echo
+if security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$LOGIN_PASSWORD" "$KEYCHAIN" >/dev/null; then
+    echo "Partition list set — codesign will not prompt on future builds."
+else
+    echo "warning: could not set the key's partition list; codesign may prompt on each build." >&2
+    echo "warning: fix it in Keychain Access by setting the key to \"Allow all applications to access this item\"." >&2
+fi
+unset LOGIN_PASSWORD
+
 echo "Created identity '$NAME':"
 security find-identity -v -p codesigning

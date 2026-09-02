@@ -26,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.monitor = monitor
 
         installStatusItem()
-        logger.info("NotchDeck started with \(surfaces.allSurfaces.count, privacy: .public) surfaces")
+        logger.notice("NotchDeck started with \(surfaces.allSurfaces.count, privacy: .public) surfaces")
     }
 
     func applicationWillTerminate(_ notification: Notification) {

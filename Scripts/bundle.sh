@@ -15,7 +15,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/notchdeck" "$APP/Contents/MacOS/NotchDeck"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 
-IDENTITY="$(security find-identity -v -p codesigning | awk '/NotchDeck Dev/ {print $2; exit}')"
+IDENTITY="$(security find-identity -v -p codesigning \
+  | awk -F'"' '$2 == "NotchDeck Dev" { split($1, f, " "); print f[2]; exit }')"
 if [ -z "$IDENTITY" ]; then
     echo "warning: no 'NotchDeck Dev' identity found — signing ad-hoc." >&2
     echo "warning: run Scripts/make-dev-cert.sh so permissions survive rebuilds." >&2

@@ -9,6 +9,7 @@ public final class NotchSurfaceManager {
     private let syntheticSize: CGSize
     private var surfaces: [CGDirectDisplayID: NotchSurface] = [:]
     private var observer: NSObjectProtocol?
+    private var mode: NotchMode = .closed
 
     public init(syntheticSize: CGSize = CGSize(width: 220, height: 32)) {
         self.syntheticSize = syntheticSize
@@ -38,6 +39,7 @@ public final class NotchSurfaceManager {
     }
 
     public func apply(mode: NotchMode) {
+        self.mode = mode
         for surface in surfaces.values {
             surface.update(mode: mode)
         }
@@ -63,6 +65,10 @@ public final class NotchSurfaceManager {
             }
         }
 
-        logger.info("rebuilt \(self.surfaces.count, privacy: .public) notch surfaces")
+        for surface in surfaces.values {
+            surface.update(mode: mode)
+        }
+
+        logger.notice("rebuilt \(self.surfaces.count, privacy: .public) notch surfaces")
     }
 }
