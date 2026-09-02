@@ -1,0 +1,177 @@
+# NotchDeck P1 — Media and Shelf
+
+**Date:** 2026-09-02
+**Status:** Draft
+**Parent spec:** [`2026-09-02-notchdeck-design.md`](2026-09-02-notchdeck-design.md)
+**Depends on:** P0 (merged) — the notch surface, state machine, gesture accumulator, panel and event monitors.
+
+P1 delivers the two features that carry most of NotchNook's value: a now-playing media player and a drag-and-drop file shelf with an AirDrop target.
+
+---
+
+## 1. Amendments to the parent spec
+
+Two decisions in this phase depart from the parent spec. Both are recorded here rather than silently applied.
+
+**The module registry moves from P2 into P1.** The parent spec schedules `NotchModule` and `ModuleRegistry` for P2. P1 introduces two modules at once, and building them without a shared contract would mean hard-coding both into the shell and rewriting them a phase later. A registry is needed exactly when the second module arrives.
+
+**The ScriptingBridge fallback for reading now-playing state is dropped.** The parent spec lists AppleScript access to Music and Spotify as a fallback behind the MediaRemote adapter. A spike (section 3.1) confirmed the adapter works on macOS 26.6.1 for every player, including browsers, with no TCC prompt. ScriptingBridge would add an Apple Events entitlement, a separate Automation permission prompt, and one code path per player, while covering *fewer* applications than the adapter. It is removed. The fallback for *commands* remains: system HID media keys work everywhere with no permission.
+
+---
+
+## 2. Module hosting
+
+### 2.1 The contract
+
+A module is a self-contained feature that owns some state and contributes views to the notch. The registry knows nothing about any particular module.
+
+Split across two targets so the orderable, persistable part stays testable without SwiftUI:
+
+- `NotchCore` gains `ModuleID` and `ModuleLayout` — the ordered list of module identifiers and which are enabled. Pure value types with persistence and reordering logic.
+- `NotchUI` gains the view-producing protocol:
+
+```swift
+@MainActor
+public protocol NotchModule: AnyObject {
+    static var id: ModuleID { get }
+    var title: String { get }
+    var symbolName: String { get }
+
+    /// Called when the module becomes visible, and when it is hidden. A module
+    /// must release subprocesses, timers and pollers on `deactivate`.
+    func activate()
+    func deactivate()
+
+    /// The module's content in the expanded panel.
+    func expandedView() -> AnyView
+
+    /// A compact representation for the collapsed notch, or nil when the module
+    /// has nothing live to show. Media returns artwork and a visualiser while a
+    /// track plays; the shelf returns nil.
+    func peekView() -> AnyView?
+}
+```
+
+### 2.2 Shell changes
+
+`NotchShellView`'s expanded state gains a tab strip listing enabled modules in layout order and hosts the selected module's `expandedView()`. Selection lives in the registry, so all displays show the same tab — consistent with P0's single shared mode.
+
+Modules are app-level singletons; their views are instantiated per surface. Module state must therefore be observable and shared, never owned by a view.
+
+The `peek` mode P0 already implements is now fed by modules: when the media module has a playing track and the notch is collapsed, the shell shows its `peekView()`.
+
+---
+
+## 3. Media module
+
+### 3.1 What the spike established
+
+A throwaway spike built `ungive/mediaremote-adapter` v0.7.6 (BSD 3-Clause, commit `3ac3d4b`) and exercised it on this machine — macOS 26.6.1, arm64. Findings that the design must respect:
+
+| Finding | Consequence |
+|---|---|
+| Works fully — `test`, `get`, `stream` and commands. `mediaremoted` accepts the client as `com.apple.perl` with `entitlements=512`. No TCC prompt of any kind. | The adapter is the primary and only source for reading state. |
+| No prebuilt release binaries exist; the project builds with CMake, and CMake is not installed here. A direct `clang` build of its 15 `.m` files works. | Vendor upstream **source**, not binaries, and build it with a script that needs only the Xcode toolchain. |
+| The framework must carry a code signature or `dlopen` fails. Ad-hoc is sufficient, and `codesign --deep` over the app re-signs the nested framework. The app's own identity is irrelevant — `perl` loads the dylib, not us. | Bundling works under the existing ad-hoc signing story. Never strip the signature. |
+| Absolute paths are mandatory; a relative framework path fails at load with exit 1. The `.pl` derives the dylib name from the directory basename, so `X.framework` must contain `X`. | Resolve paths from `Bundle.main` at runtime; never rename the framework directory alone. |
+| `stream` emits NDJSON: `{"type":"data","diff":Bool,"payload":{…}}`. First line is a priming empty payload, second is a full snapshot, everything after carries only changed keys. A key that vanished arrives as an explicit `null`. | The client must merge diffs into a running snapshot, and treat explicit null as removal. |
+| Artwork is base64 in `artworkData` with `artworkMimeType`, present only in the full snapshot and often late. Both keys absent when unavailable. | Decode once, cache by content identifier, and render an empty state until it arrives. |
+| `elapsedTime` never ticks; it is the position as of `timestamp`. On resume the framework restamps `timestamp` **without** resending `elapsedTime`. | Position is `elapsedTime + (now − timestamp) × playbackRate`, driven by `playbackRate` (0 when paused), not the `playing` flag. |
+| One logical change arrives as two lines 10–20 ms apart — the `playing` flag, then rate/elapsed/timestamp. | Run the stream with `--debounce=50`, and coalesce anyway. |
+| Zero output when nothing changes — no heartbeat, no keepalive, 0 % CPU. | Liveness must be our own concern; silence is indistinguishable from a wedged process. |
+| There is no "stopped" event. After playback ends the last track persists indefinitely with `playing:false` and a frozen position. | We need our own staleness policy. |
+| The key set is sparse and player-dependent. Only `bundleIdentifier`, `playing` and `title` are dependable; the whole output can be the literal `null` with exit 0. | Every other field is optional in the model. `null` is a valid, expected snapshot meaning "nothing known". |
+| `--micros` replaces the ISO-8601 timestamp with integer epoch microseconds. | Use it. Parsing an integer cannot fail the way a date format can. |
+| Commands are one-shot processes, ~18 ms: `send <id>` (0 play, 1 pause, 2 toggle, 4 next, 5 previous) and `seek <microseconds>`. | No long-lived command channel; spawn per command. |
+| `test` exits 0 on success and prints nothing. | Use it as a capability probe at launch, and degrade deliberately when it fails. |
+
+### 3.2 Vendoring
+
+`ThirdParty/mediaremote-adapter/` holds the upstream source at the pinned tag, its `LICENSE`, and a `VERSION` file recording tag and commit. `Scripts/build-media-adapter.sh` compiles it into `MediaRemoteAdapter.framework` with `clang` and ad-hoc signs it; `bundle.sh` calls it when the framework is missing or older than the sources, and copies the framework plus `mediaremote-adapter.pl` into the app bundle. The BSD notice is reproduced in the README's acknowledgements.
+
+The `MediaRemoteAdapterTestClient` is bundled too, because it is what makes `test` a trustworthy probe rather than a `get` in disguise.
+
+### 3.3 Structure
+
+- `MediaAdapterProcess` — spawns and supervises the `stream` subprocess, exposes an `AsyncStream` of raw payload lines, restarts with backoff on exit. Behind a protocol so tests never spawn anything.
+- `NowPlayingDecoder` — pure. Merges the diff protocol into a running `NowPlaying` snapshot: full snapshots replace, diffs merge, explicit nulls remove, the priming empty payload is ignored, and a literal `null` document clears everything. This is where the sparse schema is absorbed, and it is the most heavily tested piece in the phase.
+- `NowPlaying` — the model. Only `bundleIdentifier`, `isPlaying` and `title` are non-optional.
+- `PlaybackPosition` — pure. `position(at:)` implements the interpolation rule, clamped to `duration` when known.
+- `MediaCommands` — sends `send`/`seek` through the adapter, falling back to HID media keys when the adapter is unavailable.
+- `MediaModule` — the `NotchModule`, owning the above and publishing state to views.
+
+### 3.4 Behaviour
+
+**Expanded view:** artwork (or a placeholder), title and artist, the source app's icon, a draggable scrubber with elapsed and remaining time, and previous / play-pause / next. Scrubbing seeks on release, not continuously.
+
+**Peek view:** artwork thumbnail on one side of the notch and an animated level indicator on the other — the shape P0's `peek` mode already reserves. Shown when a track is playing and the notch is collapsed.
+
+**Gestures:** P0's accumulator already classifies horizontal swipes into `.left` and `.right`, which the notch reducer deliberately ignores. `NotchEventMonitor` gains a second callback for horizontal swipes over a surface, which the app forwards to the media module as next/previous. The notch state machine stays about the notch.
+
+**Staleness:** a track whose `playbackRate` is 0 and whose last update is older than a threshold stops being shown in the peek. The expanded view keeps showing it, so the user can still resume. This is the policy the adapter does not provide.
+
+**Degradation:** if the `test` probe fails at launch, the module still loads and still sends commands via HID keys, but shows an explanatory empty state instead of fabricating a track.
+
+---
+
+## 4. Shelf module
+
+### 4.1 Structure
+
+- `ShelfItem` — a stored reference: security-scoped bookmark, display name, file size, content type, date added, and a resolved-availability flag.
+- `ShelfStore` — pure logic over an injected persistence and file-resolution seam: add, remove, reorder, de-duplicate by resolved path, cap the item count, and mark items whose bookmark no longer resolves as unavailable rather than dropping them.
+- `ShelfModule` — the `NotchModule`. Returns nil from `peekView()`.
+
+Persistence is a JSON document in Application Support, written atomically. Bookmarks are the storage mechanism precisely because they survive the file being moved or renamed; an item is marked unavailable only when the bookmark genuinely cannot resolve, and the item view then offers to remove it.
+
+### 4.2 Drag in
+
+`NotchContainerView` registers dragged types and reports drag-enter and drag-exit. P0's reducer already handles `.dragEntered` and `.dragExited`; the new behaviour is that entering also selects the shelf tab, so a dragged file lands on a visible drop target. Dropping adds every dropped URL to the store.
+
+### 4.3 Drag out
+
+Items drag back out to Finder and other applications using `NSFilePromiseProvider`, so a drag that ends in a file-consuming target gets a real file, and one that ends nowhere costs nothing.
+
+### 4.4 AirDrop
+
+A distinct drop target inside the shelf panel hands the dropped URLs — or the currently selected items — to `NSSharingService(named: .sendViaAirDrop)`. When the service reports itself unavailable for the given items, the target says so instead of failing silently.
+
+### 4.5 Item actions
+
+Per item: reveal in Finder, Quick Look, copy, remove. Whole shelf: clear all, behind a confirmation.
+
+---
+
+## 5. Testing
+
+Unit tested, pure, no AppKit and no subprocesses:
+
+- `NowPlayingDecoder` — priming line, full snapshot, diff merge, explicit-null removal, literal `null` document, sparse payloads missing every optional key, malformed JSON, a diff arriving before any snapshot, and artwork appearing only later
+- `PlaybackPosition` — interpolation while playing, frozen while paused, the restamped-timestamp-without-elapsed case the spike found, clamping at duration, and a missing duration
+- `ShelfStore` — add, remove, reorder, de-duplication, cap enforcement, persistence round-trip, stale bookmark marked unavailable rather than dropped
+- `ModuleLayout` — ordering, enable and disable, persistence, and an unknown module ID surviving a round trip
+- `MediaCommands` — the right command ID for each transport action, and the HID fallback selection
+
+Behind protocols with fakes: the adapter subprocess, the clock, the file system and bookmark resolution, `NSSharingService`, and the pasteboard.
+
+Not unit tested, verified by hand: drag and drop into a non-activating panel, file promises, AirDrop delivery, artwork rendering, scrubber feel.
+
+---
+
+## 6. Risks
+
+**Drag and drop into a panel that is never key.** P0 deliberately made the notch panel non-activating with `canBecomeKey` false. Drag destinations should not require key status, and `acceptsFirstMouse` is already set — but this is unverified, and the whole shelf depends on it. **P1b begins with a spike that proves a file can be dropped onto, and dragged out of, a panel configured exactly like `NotchPanel`.** If it cannot, the panel configuration has to change and that must be discovered before anything is built on it.
+
+**The adapter rests on Apple's system Perl.** The technique works because `/usr/bin/perl` is reported as `com.apple.perl`. Apple has deprecated system Perl for years. If it is removed, or the entitlement stops being granted, reading now-playing state dies at once for every app using this approach. The mitigation is already in the design: probe with `test`, and degrade to commands-only rather than crashing.
+
+**Artwork memory.** Base64 artwork arrives inline on every full snapshot. Decode once, cache by `contentItemIdentifier`, and never hold more than the current track's image.
+
+---
+
+## 7. Delivery
+
+P1 splits into two plans, each ending in a runnable app.
+
+**P1a — Module hosting and media.** The `NotchModule` contract, `ModuleLayout`, the registry, the tab strip, vendoring and building the adapter, the decoder and position maths, the subprocess supervisor, the expanded player, the peek view, transport commands and swipe gestures.
+
+**P1b — Shelf and AirDrop.** The drag-and-drop spike first, then `ShelfStore`, the drop target, item views and actions, drag-out via file promises, and the AirDrop target.
