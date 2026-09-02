@@ -42,6 +42,41 @@ public enum NotchReducer {
             state.mode = .closed
             return NotchTransition(state: state)
 
+        case .scrolled(let direction):
+            switch state.mode {
+            case .closed, .peek:
+                guard direction == .down else { return NotchTransition(state: state) }
+                state.mode = .open
+                return NotchTransition(state: state, effects: [.cancelHoverDwell, .cancelPeekTimeout])
+            case .open:
+                guard direction == .up else { return NotchTransition(state: state) }
+                state.mode = .closed
+                return NotchTransition(state: state, effects: [.cancelExitGrace])
+            case .pinned:
+                return NotchTransition(state: state)
+            }
+
+        case .clicked:
+            switch state.mode {
+            case .closed, .peek:
+                state.mode = .open
+                return NotchTransition(state: state, effects: [.cancelHoverDwell, .cancelPeekTimeout])
+            case .open:
+                state.mode = .pinned
+                return NotchTransition(state: state, effects: [.cancelExitGrace])
+            case .pinned:
+                return NotchTransition(state: state)
+            }
+
+        case .clickedOutside, .escapePressed:
+            switch state.mode {
+            case .open, .pinned:
+                state.mode = .closed
+                return NotchTransition(state: state, effects: [.cancelExitGrace, .cancelHoverDwell])
+            case .closed, .peek:
+                return NotchTransition(state: state)
+            }
+
         default:
             return NotchTransition(state: state)
         }
