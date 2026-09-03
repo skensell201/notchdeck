@@ -3,6 +3,7 @@ import Media
 import NotchCore
 import NotchUI
 import NotchWindow
+import Shelf
 import Support
 
 @MainActor
@@ -11,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let controller = NotchController()
     private var registry: ModuleRegistry?
     private var media: MediaModule?
+    private var shelf: ShelfModule?
     private var surfaces: NotchSurfaceManager?
     private var monitor: NotchEventMonitor?
     private var statusItem: NSStatusItem?
@@ -24,8 +26,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.registry = registry
         self.media = media
 
+        let shelf = ShelfModule()
+        registry.register(shelf)
+        self.shelf = shelf
+
         let surfaces = NotchSurfaceManager(registry: registry)
         self.surfaces = surfaces
+
+        surfaces.onDragEntered = { [weak self] in
+            // Open the notch and land the drag on the shelf, whichever tab was
+            // showing — a dragged file has exactly one sensible destination.
+            self?.controller.send(.dragEntered)
+            registry.select(ShelfModule.id)
+        }
+        surfaces.onDragExited = { [weak self] in
+            self?.controller.send(.dragExited)
+        }
+        surfaces.onDragMoved = { point in
+            shelf.dragMoved(to: point)
+        }
+        surfaces.onDrop = { urls, point in
+            shelf.accept(urls, at: point)
+        }
 
         controller.onStateChange = { state in
             surfaces.apply(mode: state.mode)

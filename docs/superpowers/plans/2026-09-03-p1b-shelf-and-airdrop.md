@@ -439,9 +439,13 @@ struct ShelfStoreTests {
         let (store, _, _) = makeStore()
         store.add([URL(filePath: "/a/1"), URL(filePath: "/a/2"), URL(filePath: "/a/3")])
 
+        // A single drop keeps its own order, so the shelf reads 1, 2, 3 and the
+        // last tile is "3".
+        #expect(store.items.map(\.name) == ["1", "2", "3"])
+
         store.move(store.items[2].id, to: 0)
 
-        #expect(store.items.map(\.name) == ["1", "3", "2"])
+        #expect(store.items.map(\.name) == ["3", "1", "2"])
     }
 
     @Test("loading re-resolves every bookmark and marks the missing ones unavailable, without dropping them")
@@ -592,7 +596,7 @@ public final class ShelfStore {
 
         let incomingPaths = Set(added.map(\.resolvedPath))
         var remaining = items.filter { !incomingPaths.contains($0.resolvedPath) }
-        remaining.insert(contentsOf: added.reversed(), at: 0)
+        remaining.insert(contentsOf: added, at: 0)
         items = Array(remaining.prefix(capacity))
         save()
     }
@@ -644,7 +648,7 @@ public final class ShelfStore {
 }
 ```
 
-Note the ordering in `add`: `added.reversed()` inserted at 0 means that of several files dropped together, the *first* in the drop is the first tile — while a later drop still lands ahead of an earlier one. `addIsDeduplicatedAndPromotes` and `newestFirst` pin both halves.
+Note the ordering in `add`: inserting `added` at 0 means a single drop keeps its own order — the first file dropped is the first tile — while a later drop still lands ahead of an earlier one. `addIsDeduplicatedAndPromotes`, `newestFirst` and `moveReorders` pin all three halves.
 
 - [ ] **Step 5: Run the tests, then commit**
 

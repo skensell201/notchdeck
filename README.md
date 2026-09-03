@@ -77,6 +77,15 @@ rendering or windowing:
 - [ ] Launching with a track that has been paused for more than 90 s shows no peek; the expanded panel still shows the track.
 - [ ] A two-finger swipe **left** over the notch skips to the next track; right goes to the previous one.
 - [ ] Media-key fallback: rename `Contents/Frameworks/MediaRemoteAdapter.framework` inside a built bundle so the probe fails, relaunch, and confirm the transport buttons still control playback. If they do not, note that synthesising media keys needs Accessibility permission on this macOS.
+- [ ] Dragging a file from Finder onto the collapsed notch opens it and switches to the Shelf tab mid-drag.
+- [ ] Dragging away without dropping closes the notch after the grace period.
+- [ ] Dropping one or several files adds a tile per file, newest drop first, original order within a drop.
+- [ ] A tile drags back out to the Desktop and Finder copies the real file.
+- [ ] Right-clicking a tile offers Reveal in Finder, Quick Look, Copy and Remove, and each works.
+- [ ] Quitting and relaunching keeps the shelf; a file deleted meanwhile shows dimmed rather than vanishing.
+- [ ] Dropping onto the AirDrop zone highlights it during the drag and opens the AirDrop picker on release.
+- [ ] Clicking the AirDrop zone with items on the shelf offers all of them.
+- [ ] Clear asks for confirmation and empties the shelf without touching the files.
 
 ## Layout
 
@@ -86,6 +95,7 @@ rendering or windowing:
 | `NotchUI` | SwiftUI shell and the notch shape |
 | `NotchWindow` | `NSPanel` surfaces, screen adapters, event monitors |
 | `Media` | The now-playing module: adapter subprocess, decoder, transport commands, expanded player and peek views |
+| `Shelf` | File shelf: store, tiles, drag-out, AirDrop |
 | `NotchDeckApp` | Entry point, menu bar item, wiring |
 | `Support` | Shared logging |
 

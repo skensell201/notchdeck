@@ -13,6 +13,13 @@ public final class NotchSurfaceManager {
     private var observer: NSObjectProtocol?
     private var mode: NotchMode = .closed
 
+    /// One drag-handling seam for every surface, present and future. Each surface
+    /// forwards to these at call time, so they may be assigned after `init`.
+    public var onDragEntered: (() -> Void)?
+    public var onDragExited: (() -> Void)?
+    public var onDragMoved: ((CGPoint) -> Void)?
+    public var onDrop: (([URL], CGPoint) -> Bool)?
+
     public init(registry: ModuleRegistry, syntheticSize: CGSize = CGSize(width: 220, height: 32)) {
         self.registry = registry
         self.syntheticSize = syntheticSize
@@ -64,7 +71,12 @@ public final class NotchSurfaceManager {
             if let existing = surfaces[id] {
                 existing.update(screen: screen, syntheticSize: syntheticSize)
             } else {
-                surfaces[id] = NotchSurface(screen: screen, displayID: id, registry: registry, syntheticSize: syntheticSize)
+                let surface = NotchSurface(screen: screen, displayID: id, registry: registry, syntheticSize: syntheticSize)
+                surface.onDragEntered = { [weak self] in self?.onDragEntered?() }
+                surface.onDragExited = { [weak self] in self?.onDragExited?() }
+                surface.onDragMoved = { [weak self] point in self?.onDragMoved?(point) }
+                surface.onDrop = { [weak self] urls, point in self?.onDrop?(urls, point) ?? false }
+                surfaces[id] = surface
             }
         }
 
