@@ -7,6 +7,9 @@ import Mirror
 import NotchCore
 import NotchUI
 import NotchWindow
+import Preferences
+import ServiceManagement
+import SettingsUI
 import Pomodoro
 import Shelf
 import Shortcuts
@@ -17,7 +20,7 @@ import Support
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Log.make("app")
-    private let controller = NotchController()
+    private var controller = NotchController()
     private var registry: ModuleRegistry?
     private var media: MediaModule?
     private var shelf: ShelfModule?
@@ -29,6 +32,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var agenda: AgendaModule?
     private var activities: LiveActivityCenter?
     private var hud: SystemHUDController?
+    private let preferences = Preferences()
+    private var escapeMonitor: Any?
+    private var settings: SettingsWindowController?
+    private var preferenceWatch: Task<Void, Never>?
     private var surfaces: NotchSurfaceManager?
     private var monitor: NotchEventMonitor?
     private var statusItem: NSStatusItem?
@@ -36,7 +43,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         routeSignalsThroughTerminate()
-        let registry = ModuleRegistry()
+        controller = NotchController(timing: preferences.timing)
+
+        let registry = ModuleRegistry(layout: preferences.moduleLayout)
         let media = MediaModule()
         registry.register(media)
         self.registry = registry
@@ -46,7 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registry.register(shelf)
         self.shelf = shelf
 
-        let clipboard = ClipboardModule()
+        let clipboard = ClipboardModule(
+            capacity: preferences.clipboardCapacity,
+            excludedBundleIdentifiers: Set(preferences.clipboardExclusions)
+        )
         registry.register(clipboard)
         self.clipboard = clipboard
 
@@ -70,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registry.register(agenda)
         self.agenda = agenda
 
-        let surfaces = NotchSurfaceManager(registry: registry)
+        let surfaces = NotchSurfaceManager(registry: registry, syntheticSize: preferences.syntheticNotchSize)
         self.surfaces = surfaces
 
         surfaces.onDragEntered = { [weak self] in
@@ -124,6 +136,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hud.applyPreference()
         self.hud = hud
 
+        let settings = SettingsWindowController(
+            preferences: preferences,
+            registry: registry,
+            launchAtLogin: ClosureLaunchAtLogin(
+                read: { SMAppService.mainApp.status == .enabled },
+                write: { enabled in
+                    if enabled {
+                        try SMAppService.mainApp.register()
+                    } else {
+                        try SMAppService.mainApp.unregister()
+                    }
+                }
+            )
+        )
+        self.settings = settings
+
+        followPreferences(surfaces: surfaces, hud: hud)
+
+        installEscapeMonitorIfPermitted()
         installStatusItem()
         logger.notice("NotchDeck started with \(surfaces.allSurfaces.count, privacy: .public) surfaces")
     }
@@ -147,7 +178,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // subprocess is silent while nothing plays, so it would otherwise outlive
         // the app indefinitely.
         media?.shutdown()
+        preferenceWatch?.cancel()
         activities?.stop()
+        if let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+        }
+        // The layout is the one setting the app itself changes at runtime, when a
+        // module registers for the first time.
+        if let registry {
+            preferences.moduleLayout = registry.layout
+        }
         // Last chance to give the Mac its own volume overlay back.
         hud?.restore()
         monitor?.stop()
@@ -166,6 +206,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(openNotch),
             keyEquivalent: ""
         ).target = self
+        let settingsItem = NSMenuItem(
+            title: "Settings…",
+            action: #selector(openSettings),
+            keyEquivalent: ","
+        )
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
         let suppress = NSMenuItem(
             title: "Replace the system volume overlay",
             action: #selector(toggleVolumeHUD),
@@ -189,10 +237,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.send(.clicked)
     }
 
+    /// `.escapePressed` has been in the state machine since P0 with nothing to
+    /// send it: a global key monitor needs Accessibility, and nothing else in the
+    /// app needs any permission at all. So it is opt-in and only installed when
+    /// the grant is already there — asking for Accessibility on launch, for a
+    /// keyboard shortcut, would be a bad trade.
+    private func installEscapeMonitorIfPermitted() {
+        guard preferences.dismissWithEscape, AXIsProcessTrusted() else { return }
+        escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            guard event.keyCode == 53 else { return }
+            MainActor.assumeIsolated { self?.controller.send(.escapePressed) }
+        }
+    }
+
+    /// Preferences are the single source for everything the settings window can
+    /// change, so the menu item and the window cannot disagree. Polling rather
+    /// than observing: `Preferences` is `@Observable`, and observation outside a
+    /// SwiftUI body needs a re-registering `withObservationTracking` loop that is
+    /// more machinery than a one-second read of a handful of defaults.
+    private func followPreferences(surfaces: NotchSurfaceManager, hud: SystemHUDController) {
+        preferenceWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self else { return }
+                controller.timing = preferences.timing
+                surfaces.syntheticSize = preferences.syntheticNotchSize
+                if hud.isEnabled != preferences.suppressVolumeHUD {
+                    hud.isEnabled = preferences.suppressVolumeHUD
+                }
+            }
+        }
+    }
+
+    @objc private func openSettings() {
+        settings?.show()
+    }
+
     @objc private func toggleVolumeHUD(_ sender: NSMenuItem) {
-        guard let hud else { return }
-        hud.isEnabled.toggle()
-        sender.state = hud.isEnabled ? .on : .off
+        preferences.suppressVolumeHUD.toggle()
+        hud?.isEnabled = preferences.suppressVolumeHUD
+        sender.state = preferences.suppressVolumeHUD ? .on : .off
     }
 
     @objc private func quit() {

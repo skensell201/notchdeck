@@ -6,7 +6,10 @@ public final class NotchController {
     public private(set) var state = NotchState()
     public var onStateChange: ((NotchState) -> Void)?
 
-    private let timing: NotchTiming
+    /// Settable so the settings window's sliders take effect at once rather than
+    /// at the next launch. A timer already armed keeps its original delay; the
+    /// next one uses the new value, which is what the user is about to test.
+    public var timing: NotchTiming
     private let scheduler: any NotchScheduler
 
     private var hoverDwell: (any NotchCancellable)?

@@ -37,6 +37,22 @@ since `SIGTERM` is routed through the same clean shutdown. A wedged app ignores
 `SIGTERM` and needs `kill -9`, after which the next launch reaps the orphaned
 adapter subprocess.
 
+## Releasing
+
+```bash
+./Scripts/make-dmg.sh
+```
+
+Builds the release configuration and writes `build/NotchDeck-<version>.dmg` with an
+`/Applications` symlink. The image is **not notarized** — that needs a paid
+Developer ID, and the vendored MediaRemote adapter's whole technique is an
+end-run around a private framework, so the App Store was never a destination
+either. A first launch therefore needs a right-click and Open rather than a
+double-click.
+
+Launching at login needs the app to live in `/Applications`; from a build
+directory the switch reports the failure rather than silently doing nothing.
+
 ## Manual verification
 
 `NotchUI` and `NotchWindow` have no automated tests by design — this checklist is
@@ -107,6 +123,17 @@ rendering or windowing:
 - [ ] An announcement arriving while the panel is open does not interrupt it.
 - [ ] Turning on "Replace the system volume overlay" in the menu bar stops the macOS overlay; turning it off brings it back.
 - [ ] Quitting with the overlay replaced restores it — check the volume keys still show the system overlay afterwards.
+- [ ] "Settings…" in the menu bar opens a window, and opening it again brings the same window forward.
+- [ ] Dragging a module in the Modules tab reorders the tab strip in the notch straight away.
+- [ ] Unchecking a module removes its tab; unchecking all of them leaves an explanation, not an empty frame.
+- [ ] Changing the hover dwell changes how long the notch waits, without relaunching.
+- [ ] Changing the synthetic notch size resizes the notch on an external display, without relaunching.
+- [ ] The volume-overlay switch in Settings and the menu bar item agree with each other.
+- [ ] The Permissions tab shows camera and calendar status and each button opens the right pane.
+- [ ] Launch at login turns on when the app is in /Applications, and explains itself when it is not.
+- [ ] Quitting and relaunching keeps the module order and everything else set in the window.
+- [ ] With "Dismiss with Esc" on and Accessibility granted, Esc closes a pinned notch.
+- [ ] `./Scripts/make-dmg.sh` produces a disk image that mounts and installs by dragging.
 
 ## Layout
 
@@ -125,6 +152,8 @@ rendering or windowing:
 | `Agenda` | Calendar: upcoming events and meeting links |
 | `LiveActivities` | Power, volume and audio-output announcements |
 | `SystemHUD` | Suppressing the system volume overlay |
+| `Preferences` | Stored settings, clamped, and the login item |
+| `SettingsUI` | The settings window: general, modules, notch, permissions |
 | `NotchDeckApp` | Entry point, menu bar item, wiring |
 | `Support` | Shared logging |
 
