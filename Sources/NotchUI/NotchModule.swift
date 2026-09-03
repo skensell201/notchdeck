@@ -27,6 +27,11 @@ public protocol NotchModule: AnyObject {
     /// A compact representation for the collapsed notch, or nil when the module
     /// has nothing live to show.
     func peekView() -> AnyView?
+
+    /// True when `peekView()` would return content. Must be cheap and must be
+    /// backed by observable state, because the shell reads it on every layout
+    /// pass to decide how wide the collapsed notch is.
+    var hasLiveContent: Bool { get }
 }
 
 public extension NotchModule {

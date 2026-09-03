@@ -73,4 +73,10 @@ public final class ModuleRegistry {
     public var peekView: AnyView? {
         visibleModules.lazy.compactMap { $0.peekView() }.first
     }
+
+    /// Whether any visible module has content for the collapsed notch. Drives
+    /// the collapsed notch's width, so it is read on every layout pass.
+    public var hasLiveContent: Bool {
+        visibleModules.contains { $0.hasLiveContent }
+    }
 }

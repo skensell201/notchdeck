@@ -46,12 +46,21 @@ public final class NotchViewModel {
         CGSize(width: metrics.rect.width + peekSideWidth * 2, height: metrics.rect.height)
     }
 
+    /// The size the shape settles at for the current mode.
+    ///
+    /// A collapsed notch widens to `peekSize` while a module has live content —
+    /// a playing track, say — without leaving `.closed`: `.peek` is the timed
+    /// live-activity mode and would expire, whereas live content persists for as
+    /// long as the module offers it. `surfaceRectInScreen` follows this, so the
+    /// hover region grows with the band.
     public var targetSize: CGSize {
         switch mode {
+        case .closed where registry.hasLiveContent:
+            peekSize
         case .closed:
             CGSize(width: metrics.rect.width + closedFlare * 2, height: metrics.rect.height)
         case .peek:
-            CGSize(width: metrics.rect.width + peekSideWidth * 2, height: metrics.rect.height)
+            peekSize
         case .open, .pinned:
             openSize
         }

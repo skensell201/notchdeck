@@ -275,6 +275,11 @@ public protocol NotchModule: AnyObject {
     /// A compact representation for the collapsed notch, or nil when the module
     /// has nothing live to show.
     func peekView() -> AnyView?
+
+    /// True when `peekView()` would return content. Must be cheap and must be
+    /// backed by observable state, because the shell reads it on every layout
+    /// pass to decide how wide the collapsed notch is.
+    var hasLiveContent: Bool { get }
 }
 
 public extension NotchModule {
@@ -362,6 +367,12 @@ public final class ModuleRegistry {
     public var peekView: AnyView? {
         visibleModules.lazy.compactMap { $0.peekView() }.first
     }
+
+    /// Whether any visible module has content for the collapsed notch. Drives
+    /// the collapsed notch's width, so it is read on every layout pass.
+    public var hasLiveContent: Bool {
+        visibleModules.contains { $0.hasLiveContent }
+    }
 }
 ```
 
@@ -432,15 +443,35 @@ In `NotchViewModel`, add a stored `public let registry: ModuleRegistry` and take
 
 - [ ] **Step 3: Render modules in the shell**
 
-Replace `NotchShellView`'s `content` property with:
+In `NotchViewModel.targetSize`, the `.closed` case returns `peekSize` while `registry.hasLiveContent` is true — the collapsed notch widens for live content without leaving `.closed`, because `.peek` is the timed live-activity mode and would expire. `surfaceRectInScreen` derives from `targetSize`, so the hover region follows; `maximumSize` already covers `peekSize`, so the panel needs no change:
+
+```swift
+    public var targetSize: CGSize {
+        switch mode {
+        case .closed where registry.hasLiveContent:
+            peekSize
+        case .closed:
+            CGSize(width: metrics.rect.width + closedFlare * 2, height: metrics.rect.height)
+        case .peek:
+            peekSize
+        case .open, .pinned:
+            openSize
+        }
+    }
+```
+
+Replace `NotchShellView`'s `content` property with (and key the shell's `.animation` on `model.targetSize` rather than `model.mode`, so the widening animates too):
 
 ```swift
     @ViewBuilder
     private var content: some View {
         switch model.mode {
+        case .closed where model.registry.hasLiveContent:
+            peekContent
         case .closed:
             EmptyView()
         case .peek:
+            // The timed live-activity payload; unrelated to module live content.
             peekContent
         case .open, .pinned:
             expandedContent
@@ -2099,6 +2130,10 @@ public final class MediaModule: NotchModule {
     public private(set) var positionTick: Int64 = 0
     /// Set while the user drags the scrubber, so incoming updates do not fight them.
     public var scrubbingProgress: Double?
+    /// True once a paused track has sat untouched for `peekStaleness`. Observable
+    /// so the shell can react to it: the flag flips from a scheduled task rather
+    /// than being recomputed from timestamps, which nothing would re-read.
+    public private(set) var isStale = false
 
     private let logger = Log.make("media")
     private let paths: AdapterPaths?
@@ -2106,6 +2141,7 @@ public final class MediaModule: NotchModule {
     private var decoder = NowPlayingDecoder()
     private var streamTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
+    private var stalenessTask: Task<Void, Never>?
 
     /// A paused track older than this stops appearing in the collapsed notch. The
     /// adapter never says "stopped", so this is our own policy.
@@ -2144,8 +2180,12 @@ public final class MediaModule: NotchModule {
     }
 
     public func peekView() -> AnyView? {
-        guard let state, isFresh(state) else { return nil }
+        guard hasLiveContent, let state else { return nil }
         return AnyView(MediaPeekView(state: state))
+    }
+
+    public var hasLiveContent: Bool {
+        state != nil && !isStale
     }
 
     // MARK: Playback
@@ -2181,13 +2221,6 @@ public final class MediaModule: NotchModule {
 
     static func nowMicros() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1_000_000)
-    }
-
-    private func isFresh(_ state: NowPlaying) -> Bool {
-        guard state.playbackRate == 0 else { return true }
-        guard let timestamp = state.timestampEpochMicros else { return false }
-        let age = Self.nowMicros() - timestamp
-        return age < Int64(peekStaleness.components.seconds) * 1_000_000
     }
 
     private func startStream() {
@@ -2235,6 +2268,33 @@ public final class MediaModule: NotchModule {
             state = updated
         } else if decoder.snapshot == nil {
             state = nil
+        }
+        rescheduleStaleness()
+    }
+
+    /// Drives `isStale` without polling: a playing track is never stale, and a
+    /// paused one becomes stale `peekStaleness` after its last update. The
+    /// snapshot's own timestamp counts towards that, so a track that was paused
+    /// long before launch is stale straight away rather than 90 s later.
+    private func rescheduleStaleness() {
+        stalenessTask?.cancel()
+        stalenessTask = nil
+        guard let state, state.playbackRate == 0 else {
+            isStale = false
+            return
+        }
+        let age: Duration = state.timestampEpochMicros
+            .map { .microseconds(max(Self.nowMicros() - $0, 0)) } ?? .zero
+        let remaining = peekStaleness - age
+        guard remaining > .zero else {
+            isStale = true
+            return
+        }
+        isStale = false
+        stalenessTask = Task { [weak self] in
+            try? await Task.sleep(for: remaining)
+            guard !Task.isCancelled else { return }
+            self?.isStale = true
         }
     }
 

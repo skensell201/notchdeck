@@ -41,12 +41,15 @@ public struct NotchShellView: View {
                     y: model.appearance.glowOffset
                 )
                 // One animation scope, not two: separate modifiers on `targetSize`
-                // and `mode` nest, and the same change then drives both.
+                // and `mode` nest, and the same change then drives both. Keyed
+                // on `targetSize` rather than `mode` because the collapsed notch
+                // also widens for live content without a mode change, and every
+                // mode change that alters the shape alters the size too.
                 //
                 // `.smooth` rather than a spring: a bouncy curve overshoots the
                 // final size, and the shape is anchored to the screen edge, so the
                 // overshoot reads as the panel wobbling rather than settling.
-                .animation(.smooth(duration: 0.3), value: model.mode)
+                .animation(.smooth(duration: 0.3), value: model.targetSize)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -82,9 +85,12 @@ public struct NotchShellView: View {
     @ViewBuilder
     private var content: some View {
         switch model.mode {
+        case .closed where model.registry.hasLiveContent:
+            peekContent
         case .closed:
             EmptyView()
         case .peek:
+            // The timed live-activity payload; unrelated to module live content.
             peekContent
         case .open, .pinned:
             expandedContent

@@ -26,6 +26,10 @@ public final class MediaModule: NotchModule {
     public private(set) var positionTick: Int64 = 0
     /// Set while the user drags the scrubber, so incoming updates do not fight them.
     public var scrubbingProgress: Double?
+    /// True once a paused track has sat untouched for `peekStaleness`. Observable
+    /// so the shell can react to it: the flag flips from a scheduled task rather
+    /// than being recomputed from timestamps, which nothing would re-read.
+    public private(set) var isStale = false
 
     private let logger = Log.make("media")
     private let paths: AdapterPaths?
@@ -34,6 +38,7 @@ public final class MediaModule: NotchModule {
     private var artworkData: Data?
     private var streamTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
+    private var stalenessTask: Task<Void, Never>?
 
     /// A paused track older than this stops appearing in the collapsed notch. The
     /// adapter never says "stopped", so this is our own policy.
@@ -72,8 +77,12 @@ public final class MediaModule: NotchModule {
     }
 
     public func peekView() -> AnyView? {
-        guard let state, isFresh(state) else { return nil }
+        guard hasLiveContent, let state else { return nil }
         return AnyView(MediaPeekView(state: state, artwork: artworkImage))
+    }
+
+    public var hasLiveContent: Bool {
+        state != nil && !isStale
     }
 
     // MARK: Playback
@@ -109,13 +118,6 @@ public final class MediaModule: NotchModule {
 
     static func nowMicros() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1_000_000)
-    }
-
-    private func isFresh(_ state: NowPlaying) -> Bool {
-        guard state.playbackRate == 0 else { return true }
-        guard let timestamp = state.timestampEpochMicros else { return false }
-        let age = Self.nowMicros() - timestamp
-        return age < peekStaleness.components.seconds * 1_000_000
     }
 
     private func startStream() {
@@ -166,6 +168,33 @@ public final class MediaModule: NotchModule {
             state = nil
         }
         refreshArtwork()
+        rescheduleStaleness()
+    }
+
+    /// Drives `isStale` without polling: a playing track is never stale, and a
+    /// paused one becomes stale `peekStaleness` after its last update. The
+    /// snapshot's own timestamp counts towards that, so a track that was paused
+    /// long before launch is stale straight away rather than 90 s later.
+    private func rescheduleStaleness() {
+        stalenessTask?.cancel()
+        stalenessTask = nil
+        guard let state, state.playbackRate == 0 else {
+            isStale = false
+            return
+        }
+        let age: Duration = state.timestampEpochMicros
+            .map { .microseconds(max(Self.nowMicros() - $0, 0)) } ?? .zero
+        let remaining = peekStaleness - age
+        guard remaining > .zero else {
+            isStale = true
+            return
+        }
+        isStale = false
+        stalenessTask = Task { [weak self] in
+            try? await Task.sleep(for: remaining)
+            guard !Task.isCancelled else { return }
+            self?.isStale = true
+        }
     }
 
     private func refreshArtwork() {
