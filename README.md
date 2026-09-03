@@ -66,7 +66,8 @@ rendering or windowing:
 - [ ] A two-finger horizontal swipe over the notch changes track.
 - [ ] Stopping playback entirely makes the peek disappear after the staleness window, without the panel losing the track.
 - [ ] With nothing ever played since login, the panel says "Nothing playing" rather than showing a stale track.
-- [ ] Quitting and relaunching leaves no orphaned `perl` process: `pgrep -f mediaremote-adapter` is empty.
+- [ ] Quitting cleanly — menu or `pkill -x NotchDeck` — with nothing playing leaves no orphaned `perl` process: `pgrep -f mediaremote-adapter` is empty within a couple of seconds.
+- [ ] After `kill -9` of a running instance, the orphaned `perl` survives; the next launch reaps it, and `pgrep -fl mediaremote-adapter` then shows exactly one `perl`, the new instance's.
 
 ## Layout
 

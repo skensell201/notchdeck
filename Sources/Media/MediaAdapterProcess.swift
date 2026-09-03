@@ -186,6 +186,51 @@ public final class PerlAdapterStream: AdapterStreamSource, @unchecked Sendable {
     }
 }
 
+/// Kills adapter subprocesses left behind by a previous instance that did not exit
+/// cleanly. Matches only processes running *this bundle's* script, so other apps
+/// using the same adapter are untouched. Best-effort: a failure here is logged and
+/// otherwise ignored.
+///
+/// Needed because the adapter is silent while nothing plays — the spec's "zero
+/// output when nothing changes" — so an idle `stream` never notices its parent is
+/// gone: it neither gets `SIGPIPE` nor exits on its own. A graceful quit stops it
+/// through `MediaModule.shutdown()`; anything ungraceful leaves it for this.
+public enum AdapterReaper {
+    private static let logger = Log.make("media.adapter")
+
+    public static func reapOrphans(of paths: AdapterPaths) async {
+        // `pkill -f` matches against the full command line, and the script's
+        // absolute path is the one part of it unique to this bundle. Escaped so
+        // the dots in the path do not match arbitrary characters.
+        let pattern = NSRegularExpression.escapedPattern(for: paths.script.path(percentEncoded: false))
+        let status: Int32? = await withCheckedContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(filePath: "/usr/bin/pkill")
+            process.arguments = ["-f", pattern]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            process.terminationHandler = { finished in
+                continuation.resume(returning: finished.terminationStatus)
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
+        switch status {
+        case 0:
+            logger.notice("reaped an orphaned adapter from a previous instance")
+        case 1:
+            break // Nothing matched: the previous instance exited cleanly.
+        case let other?:
+            logger.warning("pkill exited with status \(other, privacy: .public); orphaned adapters may remain")
+        case nil:
+            logger.warning("could not run pkill; orphaned adapters may remain")
+        }
+    }
+}
+
 /// Runs one-shot adapter commands.
 public struct PerlAdapterCommandRunner: AdapterCommandRunner {
     private let paths: AdapterPaths

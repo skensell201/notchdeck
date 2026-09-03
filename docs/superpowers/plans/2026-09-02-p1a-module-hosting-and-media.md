@@ -2042,6 +2042,51 @@ public final class PerlAdapterStream: AdapterStreamSource, @unchecked Sendable {
     }
 }
 
+/// Kills adapter subprocesses left behind by a previous instance that did not exit
+/// cleanly. Matches only processes running *this bundle's* script, so other apps
+/// using the same adapter are untouched. Best-effort: a failure here is logged and
+/// otherwise ignored.
+///
+/// Needed because the adapter is silent while nothing plays — the spec's "zero
+/// output when nothing changes" — so an idle `stream` never notices its parent is
+/// gone: it neither gets `SIGPIPE` nor exits on its own. A graceful quit stops it
+/// through `MediaModule.shutdown()`; anything ungraceful leaves it for this.
+public enum AdapterReaper {
+    private static let logger = Log.make("media.adapter")
+
+    public static func reapOrphans(of paths: AdapterPaths) async {
+        // `pkill -f` matches against the full command line, and the script's
+        // absolute path is the one part of it unique to this bundle. Escaped so
+        // the dots in the path do not match arbitrary characters.
+        let pattern = NSRegularExpression.escapedPattern(for: paths.script.path(percentEncoded: false))
+        let status: Int32? = await withCheckedContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(filePath: "/usr/bin/pkill")
+            process.arguments = ["-f", pattern]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            process.terminationHandler = { finished in
+                continuation.resume(returning: finished.terminationStatus)
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
+        switch status {
+        case 0:
+            logger.notice("reaped an orphaned adapter from a previous instance")
+        case 1:
+            break // Nothing matched: the previous instance exited cleanly.
+        case let other?:
+            logger.warning("pkill exited with status \(other, privacy: .public); orphaned adapters may remain")
+        case nil:
+            logger.warning("could not run pkill; orphaned adapters may remain")
+        }
+    }
+}
+
 /// Runs one-shot adapter commands.
 public struct PerlAdapterCommandRunner: AdapterCommandRunner {
     private let paths: AdapterPaths
@@ -2142,6 +2187,9 @@ public final class MediaModule: NotchModule {
     private var streamTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
     private var stalenessTask: Task<Void, Never>?
+    /// The adapter stream currently being consumed, kept so `shutdown()` can stop
+    /// its subprocess synchronously.
+    private var currentSource: PerlAdapterStream?
 
     /// A paused track older than this stops appearing in the collapsed notch. The
     /// adapter never says "stopped", so this is our own policy.
@@ -2188,6 +2236,21 @@ public final class MediaModule: NotchModule {
         state != nil && !isStale
     }
 
+    /// Stops the adapter subprocess and every timer, synchronously. Called from
+    /// `applicationWillTerminate`, which is the last chance to do it: cancelling the
+    /// stream task alone would only take effect on a later main-actor turn that
+    /// never comes.
+    public func shutdown() {
+        streamTask?.cancel()
+        tickTask?.cancel()
+        stalenessTask?.cancel()
+        currentSource?.stop()
+        streamTask = nil
+        tickTask = nil
+        stalenessTask = nil
+        currentSource = nil
+    }
+
     // MARK: Playback
 
     public func perform(_ action: TransportAction) {
@@ -2231,6 +2294,9 @@ public final class MediaModule: NotchModule {
         }
 
         streamTask = Task { [weak self] in
+            // A previous instance that died ungracefully leaves its idle adapter
+            // behind; clear it before starting our own so exactly one runs.
+            await AdapterReaper.reapOrphans(of: paths)
             let runner = PerlAdapterCommandRunner(paths: paths)
             let works = await runner.probe()
             guard let self else { return }
@@ -2254,10 +2320,12 @@ public final class MediaModule: NotchModule {
                     try? await Task.sleep(for: delay)
                 }
                 let source = PerlAdapterStream(paths: paths)
+                self.currentSource = source
                 let started = clock.now
                 for await line in source.lines() {
                     self.consume(line)
                 }
+                self.currentSource = nil
                 attempt = clock.now - started >= minimumHealthyUptime ? 0 : attempt + 1
             }
         }
@@ -2605,6 +2673,37 @@ Finally, start the media stream at launch so the peek works before the panel is 
 
 Add `registry` and `media` as strong stored properties on the delegate.
 
+Stop the adapter on the way out. `applicationWillTerminate` is the last main-actor turn, so this must be synchronous — cancelling the stream task would only take effect on a turn that never comes, and an idle adapter never notices its parent is gone:
+
+```swift
+    func applicationWillTerminate(_ notification: Notification) {
+        // Synchronous on purpose: this is the last main-actor turn. The adapter
+        // subprocess is silent while nothing plays, so it would otherwise outlive
+        // the app indefinitely.
+        media?.shutdown()
+        monitor?.stop()
+    }
+```
+
+That covers the menu item, but not `SIGTERM`: AppKit installs no handler for it, so `pkill -x NotchDeck` kills the process on the spot and `applicationWillTerminate` never runs — verified, the adapter survived it exactly as it survives `SIGKILL`. Route the signal through an ordinary quit, called from `applicationDidFinishLaunching` and with the source stored on the delegate:
+
+```swift
+    /// AppKit does not handle `SIGTERM`: the default disposition kills the process
+    /// on the spot and `applicationWillTerminate` never runs, so a `pkill -x
+    /// NotchDeck` or a launchd stop would leave the adapter orphaned exactly like
+    /// `SIGKILL` does. Turn the signal into an ordinary quit so the delegate's
+    /// shutdown path runs for it too.
+    private func routeSIGTERMThroughTerminate() {
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler {
+            MainActor.assumeIsolated { NSApp.terminate(nil) }
+        }
+        source.resume()
+        terminationSignal = source
+    }
+```
+
 - [ ] **Step 3: Build and run**
 
 ```bash
@@ -2625,7 +2724,8 @@ Add to the manual verification checklist:
 - [ ] A two-finger horizontal swipe over the notch changes track.
 - [ ] Stopping playback entirely makes the peek disappear after the staleness window, without the panel losing the track.
 - [ ] With nothing ever played since login, the panel says "Nothing playing" rather than showing a stale track.
-- [ ] Quitting and relaunching leaves no orphaned `perl` process: `pgrep -f mediaremote-adapter` is empty.
+- [ ] Quitting cleanly — menu or `pkill -x NotchDeck` — with nothing playing leaves no orphaned `perl` process: `pgrep -f mediaremote-adapter` is empty within a couple of seconds.
+- [ ] After `kill -9` of a running instance, the orphaned `perl` survives; the next launch reaps it, and `pgrep -fl mediaremote-adapter` then shows exactly one `perl`, the new instance's.
 
 - [ ] **Step 5: Commit**
 
@@ -2640,7 +2740,7 @@ git commit -m "feat: wire the media module into the app"
 
 Two things the checklist cannot express and a human must confirm once:
 
-- **No orphaned subprocesses.** The stream is a long-lived `perl` process. Quit NotchDeck and confirm `pgrep -f mediaremote-adapter` is empty. Kill NotchDeck with `SIGKILL` and confirm the same — `continuation.onTermination` will not run, so if a process survives, the supervisor needs a `Process.terminate` on a parent-death path.
+- **No orphaned subprocesses.** *Implemented.* The stream is a long-lived `perl` process, and the concern was real: with nothing playing the adapter is silent, never gets `SIGPIPE`, and survived every kind of quit reparented to PID 1 — `continuation.onTermination` does not run on process exit. Two fixes: `applicationWillTerminate` calls `MediaModule.shutdown()`, which stops the live `PerlAdapterStream` synchronously (with `SIGTERM` routed through `NSApp.terminate`, since AppKit would otherwise die on it without running the delegate), and every launch awaits `AdapterReaper.reapOrphans(of:)` (a `pkill -f` on this bundle's escaped script path) before the probe. `SIGKILL` still leaves an orphan — nothing can run — but the next launch reaps it. Both are on the README checklist.
 - **The media-key fallback.** Rename the framework inside a built bundle so the probe fails, relaunch, and confirm the transport buttons still control playback. If they do not, synthesising media keys needs Accessibility permission on macOS 26 and the README must say so.
 
 ## Out of scope for P1a

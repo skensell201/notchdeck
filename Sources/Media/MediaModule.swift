@@ -39,6 +39,9 @@ public final class MediaModule: NotchModule {
     private var streamTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
     private var stalenessTask: Task<Void, Never>?
+    /// The adapter stream currently being consumed, kept so `shutdown()` can stop
+    /// its subprocess synchronously.
+    private var currentSource: PerlAdapterStream?
 
     /// A paused track older than this stops appearing in the collapsed notch. The
     /// adapter never says "stopped", so this is our own policy.
@@ -85,6 +88,21 @@ public final class MediaModule: NotchModule {
         state != nil && !isStale
     }
 
+    /// Stops the adapter subprocess and every timer, synchronously. Called from
+    /// `applicationWillTerminate`, which is the last chance to do it: cancelling the
+    /// stream task alone would only take effect on a later main-actor turn that
+    /// never comes.
+    public func shutdown() {
+        streamTask?.cancel()
+        tickTask?.cancel()
+        stalenessTask?.cancel()
+        currentSource?.stop()
+        streamTask = nil
+        tickTask = nil
+        stalenessTask = nil
+        currentSource = nil
+    }
+
     // MARK: Playback
 
     public func perform(_ action: TransportAction) {
@@ -128,6 +146,9 @@ public final class MediaModule: NotchModule {
         }
 
         streamTask = Task { [weak self] in
+            // A previous instance that died ungracefully leaves its idle adapter
+            // behind; clear it before starting our own so exactly one runs.
+            await AdapterReaper.reapOrphans(of: paths)
             let runner = PerlAdapterCommandRunner(paths: paths)
             let works = await runner.probe()
             guard let self else { return }
@@ -151,10 +172,12 @@ public final class MediaModule: NotchModule {
                     try? await Task.sleep(for: delay)
                 }
                 let source = PerlAdapterStream(paths: paths)
+                self.currentSource = source
                 let started = clock.now
                 for await line in source.lines() {
                     self.consume(line)
                 }
+                self.currentSource = nil
                 attempt = clock.now - started >= minimumHealthyUptime ? 0 : attempt + 1
             }
         }
