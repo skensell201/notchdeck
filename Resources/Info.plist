@@ -22,5 +22,9 @@
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+	<key>NSCameraUsageDescription</key>
+	<string>NotchDeck shows a camera preview in the notch so you can check yourself before a call.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>NotchDeck shows your upcoming events in the notch.</string>
 </dict>
 </plist>
