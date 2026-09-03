@@ -15,7 +15,7 @@ let package = Package(
         .target(name: "Media", dependencies: ["NotchCore", "NotchUI", "Support"]),
         .target(name: "Shelf", dependencies: ["NotchCore", "NotchUI", "Support"]),
         .target(name: "Stats", dependencies: ["NotchCore", "NotchUI", "Support"]),
-        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf"]),
+        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf", "Stats"]),
         .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore"]),
         .testTarget(name: "MediaTests", dependencies: ["Media"]),
         .testTarget(name: "ShelfTests", dependencies: ["Shelf"]),
