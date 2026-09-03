@@ -1,0 +1,10 @@
+ungive/mediaremote-adapter
+tag:    v0.7.6
+commit: 3ac3d4bdf862c7b5399b4fba4df5689f5c38609a
+source: https://github.com/ungive/mediaremote-adapter
+license: BSD 3-Clause (see LICENSE)
+
+Vendored verbatim from the tag: include/, src/, LICENSE, README.md and
+CMakeLists.txt keep upstream's layout; mediaremote-adapter.pl is upstream's
+bin/mediaremote-adapter.pl moved to this directory. Built by
+Scripts/build-media-adapter.sh (clang, no CMake).
