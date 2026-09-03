@@ -93,7 +93,7 @@ public struct NotchShellView: View {
 
     @ViewBuilder
     private var peekContent: some View {
-        if let peek = model.registry.peekProvider?.peekView() {
+        if let peek = model.registry.peekView {
             peek
                 .padding(.horizontal, model.closedFlare + 4)
                 // Laid out at the final size from the first frame — see the note
@@ -107,8 +107,11 @@ public struct NotchShellView: View {
     @ViewBuilder
     private var expandedContent: some View {
         VStack(spacing: 0) {
-            ModuleTabStrip(registry: model.registry)
-                .frame(height: model.metrics.rect.height)
+            HStack(spacing: 0) {
+                ModuleTabStrip(registry: model.registry)
+                Spacer(minLength: model.metrics.rect.width + 24)
+            }
+            .frame(height: model.metrics.rect.height)
             if let module = model.registry.selectedModule {
                 module.expandedView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

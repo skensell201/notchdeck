@@ -289,6 +289,7 @@ public extension NotchModule {
 ```swift
 import NotchCore
 import Observation
+import SwiftUI
 
 /// Owns the app's modules, honours the user's layout, and tracks which tab is
 /// showing. Shared across every screen surface, so all displays agree.
@@ -300,16 +301,18 @@ public final class ModuleRegistry {
 
     private var modules: [ModuleID: any NotchModule] = [:]
     private var activated: ModuleID?
+    private var panelVisible = false
 
     public init(layout: ModuleLayout = ModuleLayout()) {
         self.layout = layout
     }
 
     public func register(_ module: any NotchModule) {
+        precondition(modules[module.id] == nil, "module \(module.id.rawValue) registered twice")
         modules[module.id] = module
         layout.register(module.id)
         if selection == nil {
-            selection = layout.defaultSelection
+            selection = visibleModules.first?.id
         }
     }
 
@@ -322,19 +325,28 @@ public final class ModuleRegistry {
     }
 
     public var selectedModule: (any NotchModule)? {
-        guard let selection else { return nil }
-        return modules[selection]
+        if let selection, let module = modules[selection] {
+            return module
+        }
+        return visibleModules.first
     }
 
     public func select(_ id: ModuleID) {
         guard modules[id] != nil, !layout.disabled.contains(id) else { return }
         selection = id
+        reconcileActivation()
     }
 
     /// Activates the selected module and deactivates whichever was active before,
-    /// so exactly one module holds live resources at a time.
+    /// so exactly one module holds live resources at a time — whether the change
+    /// came from the panel opening or from the user switching tabs while it is open.
     public func setPanelVisible(_ visible: Bool) {
-        let wanted = visible ? selection : nil
+        panelVisible = visible
+        reconcileActivation()
+    }
+
+    private func reconcileActivation() {
+        let wanted = panelVisible ? selection : nil
         guard wanted != activated else { return }
 
         if let activated, let module = modules[activated] {
@@ -346,9 +358,9 @@ public final class ModuleRegistry {
         }
     }
 
-    /// The first visible module offering live content for the collapsed notch.
-    public var peekProvider: (any NotchModule)? {
-        visibleModules.first { $0.peekView() != nil }
+    /// The first visible module's live content for the collapsed notch, if any.
+    public var peekView: AnyView? {
+        visibleModules.lazy.compactMap { $0.peekView() }.first
     }
 }
 ```
@@ -437,7 +449,7 @@ Replace `NotchShellView`'s `content` property with:
 
     @ViewBuilder
     private var peekContent: some View {
-        if let peek = model.registry.peekProvider?.peekView() {
+        if let peek = model.registry.peekView {
             peek
                 .padding(.horizontal, model.closedFlare + 4)
                 .frame(maxHeight: .infinity)
@@ -448,8 +460,11 @@ Replace `NotchShellView`'s `content` property with:
     @ViewBuilder
     private var expandedContent: some View {
         VStack(spacing: 0) {
-            ModuleTabStrip(registry: model.registry)
-                .frame(height: model.metrics.rect.height)
+            HStack(spacing: 0) {
+                ModuleTabStrip(registry: model.registry)
+                Spacer(minLength: model.metrics.rect.width + 24)
+            }
+            .frame(height: model.metrics.rect.height)
             if let module = model.registry.selectedModule {
                 module.expandedView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -466,7 +481,10 @@ Replace `NotchShellView`'s `content` property with:
     }
 ```
 
-The tab strip occupies a band the height of the physical notch, so it sits either side of the camera housing rather than under it.
+The tab strip band is the height of the physical notch. Rather than centring the
+strip under the opaque camera housing — where it would be invisible on a real
+MacBook — it is pinned to the left flank, with a `Spacer` reserving the housing's
+width plus margin in the middle and the right flank free for future controls.
 
 - [ ] **Step 4: Build**
 
@@ -679,43 +697,89 @@ Copy into `ThirdParty/mediaremote-adapter/`: the Objective-C sources and headers
 
 ```bash
 #!/usr/bin/env bash
-# Builds the vendored mediaremote-adapter sources into a code-signed framework.
+# Builds the vendored mediaremote-adapter sources into a code-signed framework
+# plus the MediaRemoteAdapterTestClient helper, both under build/.
 #
 # Upstream builds with CMake; we use clang directly so the only requirement is
-# the Xcode toolchain. The framework MUST be signed or /usr/bin/perl cannot
-# dlopen it, and the directory name must match the binary name inside it —
-# the .pl script derives one from the other.
+# the Xcode toolchain. Things that must stay true:
+#   - The framework MUST be signed or /usr/bin/perl cannot dlopen it. Ad-hoc
+#     is enough; bundle.sh re-signs it with the app's identity via --deep.
+#   - The directory name must match the binary name inside it — the .pl script
+#     derives one from the other.
+#   - Symbols must be exported (-fvisibility=default) or perl's DynaLoader
+#     cannot find adapter_get & co. Upstream's CMakeLists says the same.
+#
+# Prints the framework path on stdout; everything else goes to stderr.
+# Skips the build when a stamp file written after the last successful,
+# fully-signed build is newer than every vendored source and this script;
+# set FORCE=1 to rebuild regardless.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$ROOT/ThirdParty/mediaremote-adapter"
-OUT="$ROOT/build/MediaRemoteAdapter.framework"
+BUILD="$ROOT/build"
 NAME="MediaRemoteAdapter"
+OUT="$BUILD/$NAME.framework"
+BIN="$OUT/Versions/A/$NAME"
+CLIENT="$BUILD/${NAME}TestClient"
+STAMP="$BUILD/.media-adapter-stamp"
+ARCH="${ARCH:-$(uname -m)}"
+MIN_MACOS="26.0"
 
-rm -rf "$OUT"
-mkdir -p "$OUT/Versions/A/Resources"
+# The stamp is written as the very last step, after codesign, so a run
+# interrupted after linking but before signing leaves no stamp and the next
+# run rebuilds instead of accepting half-finished (unsigned) binaries.
+up_to_date() {
+    [ -f "$STAMP" ] || return 1
+    [ -z "$(find "$SRC" "${BASH_SOURCE[0]}" -type f -newer "$STAMP" -print -quit)" ]
+}
 
-clang -dynamiclib -fobjc-arc -O2 \
-    -arch arm64 -mmacosx-version-min=26.0 \
+if [ "${FORCE:-0}" != "1" ] && up_to_date; then
+    echo "media adapter up to date: $OUT" >&2
+    echo "$OUT"
+    exit 0
+fi
+
+echo "building $NAME.framework ($ARCH)" >&2
+rm -rf "$OUT" "$CLIENT"
+mkdir -p "$OUT/Versions/A/Resources" "$OUT/Versions/A/Headers"
+
+# Upstream's source list (CMakeLists.txt: ADAPTER_SOURCES). Sources import
+# headers as "adapter/get.h" and "MediaRemoteAdapter.h", hence both -I paths.
+clang -dynamiclib -fobjc-arc -fvisibility=default -O2 \
+    -arch "$ARCH" -mmacosx-version-min="$MIN_MACOS" \
     -framework Foundation -framework AppKit -framework UniformTypeIdentifiers \
     -install_name "@rpath/$NAME.framework/Versions/A/$NAME" \
-    -I "$SRC/include" \
-    -o "$OUT/Versions/A/$NAME" \
-    "$SRC"/src/*.m
+    -compatibility_version 1.0 -current_version 0.7.6 \
+    -I "$SRC/include" -I "$SRC/src" \
+    -o "$BIN" \
+    "$SRC"/src/adapter/*.m "$SRC"/src/private/*.m "$SRC"/src/utility/*.m
 
-cat > "$OUT/Versions/A/Resources/Info.plist" <<'PLIST'
+cp "$SRC/include/$NAME.h" "$OUT/Versions/A/Headers/"
+
+cat > "$OUT/Versions/A/Resources/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>MediaRemoteAdapter</string>
+    <string>$NAME</string>
     <key>CFBundleIdentifier</key>
-    <string>com.skensell.notchdeck.MediaRemoteAdapter</string>
+    <string>com.skensell.notchdeck.$NAME</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$NAME</string>
     <key>CFBundlePackageType</key>
     <string>FMWK</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.7.6</string>
     <key>CFBundleVersion</key>
     <string>0.7.6</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>$MIN_MACOS</string>
 </dict>
 </plist>
 PLIST
@@ -723,8 +787,22 @@ PLIST
 ln -sfn A "$OUT/Versions/Current"
 ln -sfn "Versions/Current/$NAME" "$OUT/$NAME"
 ln -sfn Versions/Current/Resources "$OUT/Resources"
+ln -sfn Versions/Current/Headers "$OUT/Headers"
 
-codesign --force --sign - "$OUT"
+# The test client publishes a fake now-playing entry so the adapter's `test`
+# command can prove MediaRemote answers even when nothing is playing.
+echo "building ${NAME}TestClient ($ARCH)" >&2
+clang -fobjc-arc -O2 \
+    -arch "$ARCH" -mmacosx-version-min="$MIN_MACOS" \
+    -framework Foundation -framework MediaPlayer \
+    -I "$SRC/src/test" \
+    -o "$CLIENT" \
+    "$SRC"/src/test/main.m "$SRC"/src/test/NowPlayingTest.m
+
+codesign --force --sign - "$OUT" >&2
+codesign --force --sign - "$CLIENT" >&2
+
+touch "$STAMP"
 echo "$OUT"
 ```
 

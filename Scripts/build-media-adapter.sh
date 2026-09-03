@@ -12,8 +12,9 @@
 #     cannot find adapter_get & co. Upstream's CMakeLists says the same.
 #
 # Prints the framework path on stdout; everything else goes to stderr.
-# Skips the build when the outputs are newer than every vendored source and
-# this script; set FORCE=1 to rebuild regardless.
+# Skips the build when a stamp file written after the last successful,
+# fully-signed build is newer than every vendored source and this script;
+# set FORCE=1 to rebuild regardless.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,14 +24,16 @@ NAME="MediaRemoteAdapter"
 OUT="$BUILD/$NAME.framework"
 BIN="$OUT/Versions/A/$NAME"
 CLIENT="$BUILD/${NAME}TestClient"
+STAMP="$BUILD/.media-adapter-stamp"
 ARCH="${ARCH:-$(uname -m)}"
 MIN_MACOS="26.0"
 
+# The stamp is written as the very last step, after codesign, so a run
+# interrupted after linking but before signing leaves no stamp and the next
+# run rebuilds instead of accepting half-finished (unsigned) binaries.
 up_to_date() {
-    [ -f "$BIN" ] && [ -f "$CLIENT" ] || return 1
-    for out in "$BIN" "$CLIENT"; do
-        [ -z "$(find "$SRC" "${BASH_SOURCE[0]}" -type f -newer "$out" -print -quit)" ] || return 1
-    done
+    [ -f "$STAMP" ] || return 1
+    [ -z "$(find "$SRC" "${BASH_SOURCE[0]}" -type f -newer "$STAMP" -print -quit)" ]
 }
 
 if [ "${FORCE:-0}" != "1" ] && up_to_date; then
@@ -101,4 +104,5 @@ clang -fobjc-arc -O2 \
 codesign --force --sign - "$OUT" >&2
 codesign --force --sign - "$CLIENT" >&2
 
+touch "$STAMP"
 echo "$OUT"
