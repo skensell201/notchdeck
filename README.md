@@ -59,6 +59,14 @@ rendering or windowing:
 - [ ] On a light wallpaper the expanded panel has a clear edge and does not look pasted on.
 - [ ] No glow or bright line appears above the panel, across the menu bar or the bezel.
 - [ ] Clicks still pass through the reserved margin around the panel — the bloom must not swallow them.
+- [ ] With music playing in any app — Music, Spotify, a browser tab — the collapsed notch shows its artwork and an animated indicator.
+- [ ] Opening the notch shows the track's artwork, title and artist, a scrubber that advances once a second, and working previous / play-pause / next.
+- [ ] Dragging the scrubber seeks the track on release.
+- [ ] Pausing in the source app is reflected within a second, and the visualiser rests.
+- [ ] A two-finger horizontal swipe over the notch changes track.
+- [ ] Stopping playback entirely makes the peek disappear after the staleness window, without the panel losing the track.
+- [ ] With nothing ever played since login, the panel says "Nothing playing" rather than showing a stale track.
+- [ ] Quitting and relaunching leaves no orphaned `perl` process: `pgrep -f mediaremote-adapter` is empty.
 
 ## Layout
 
