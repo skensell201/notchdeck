@@ -1,4 +1,5 @@
 import AppKit
+import Clipboard
 import Media
 import NotchCore
 import NotchUI
@@ -13,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var registry: ModuleRegistry?
     private var media: MediaModule?
     private var shelf: ShelfModule?
+    private var clipboard: ClipboardModule?
     private var surfaces: NotchSurfaceManager?
     private var monitor: NotchEventMonitor?
     private var statusItem: NSStatusItem?
@@ -29,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let shelf = ShelfModule()
         registry.register(shelf)
         self.shelf = shelf
+
+        let clipboard = ClipboardModule()
+        registry.register(clipboard)
+        self.clipboard = clipboard
 
         let surfaces = NotchSurfaceManager(registry: registry)
         self.surfaces = surfaces
