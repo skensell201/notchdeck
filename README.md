@@ -100,6 +100,13 @@ rendering or windowing:
 - [ ] Birthdays do not appear in the calendar list; meetings that ended more than fifteen minutes ago do not either.
 - [ ] The Shortcuts tab lists your shortcuts and running one works; with no shortcuts saved the list is empty, which is correct.
 - [ ] All eight tabs fit either side of the camera housing and none is hidden behind it.
+- [ ] Changing the volume shows a level bar in the collapsed notch, one announcement per press.
+- [ ] Muting shows a distinct symbol and no bar.
+- [ ] Plugging and unplugging the charger announces itself.
+- [ ] Connecting AirPods or another output device announces its name.
+- [ ] An announcement arriving while the panel is open does not interrupt it.
+- [ ] Turning on "Replace the system volume overlay" in the menu bar stops the macOS overlay; turning it off brings it back.
+- [ ] Quitting with the overlay replaced restores it — check the volume keys still show the system overlay afterwards.
 
 ## Layout
 
@@ -116,6 +123,8 @@ rendering or windowing:
 | `Mirror` | Camera preview with a mirrored image |
 | `Shortcuts` | Shortcuts launcher: list, pin, run |
 | `Agenda` | Calendar: upcoming events and meeting links |
+| `LiveActivities` | Power, volume and audio-output announcements |
+| `SystemHUD` | Suppressing the system volume overlay |
 | `NotchDeckApp` | Entry point, menu bar item, wiring |
 | `Support` | Shared logging |
 

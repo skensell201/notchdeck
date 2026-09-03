@@ -1,6 +1,7 @@
 import Agenda
 import AppKit
 import Clipboard
+import LiveActivities
 import Media
 import Mirror
 import NotchCore
@@ -10,6 +11,7 @@ import Pomodoro
 import Shelf
 import Shortcuts
 import Stats
+import SystemHUD
 import Support
 
 @MainActor
@@ -25,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mirror: MirrorModule?
     private var shortcuts: ShortcutsModule?
     private var agenda: AgendaModule?
+    private var activities: LiveActivityCenter?
+    private var hud: SystemHUDController?
     private var surfaces: NotchSurfaceManager?
     private var monitor: NotchEventMonitor?
     private var statusItem: NSStatusItem?
@@ -106,6 +110,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // peek has nothing to show.
         media.startStreaming()
 
+        // Announcements — charging, volume, a device connecting — reach the notch
+        // through the state machine's timed peek mode, which has existed and been
+        // tested since P0 with nothing to trigger it.
+        let activities = LiveActivityCenter()
+        activities.onActivity = { [weak self] payload in
+            self?.controller.send(.liveActivity(payload))
+        }
+        activities.start()
+        self.activities = activities
+
+        let hud = SystemHUDController()
+        hud.applyPreference()
+        self.hud = hud
+
         installStatusItem()
         logger.notice("NotchDeck started with \(surfaces.allSurfaces.count, privacy: .public) surfaces")
     }
@@ -129,6 +147,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // subprocess is silent while nothing plays, so it would otherwise outlive
         // the app indefinitely.
         media?.shutdown()
+        activities?.stop()
+        // Last chance to give the Mac its own volume overlay back.
+        hud?.restore()
         monitor?.stop()
     }
 
@@ -145,6 +166,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(openNotch),
             keyEquivalent: ""
         ).target = self
+        let suppress = NSMenuItem(
+            title: "Replace the system volume overlay",
+            action: #selector(toggleVolumeHUD),
+            keyEquivalent: ""
+        )
+        suppress.target = self
+        suppress.state = hud?.isEnabled == true ? .on : .off
+        menu.addItem(suppress)
         menu.addItem(.separator())
         menu.addItem(
             withTitle: "Quit NotchDeck",
@@ -158,6 +187,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openNotch() {
         controller.send(.clicked)
+    }
+
+    @objc private func toggleVolumeHUD(_ sender: NSMenuItem) {
+        guard let hud else { return }
+        hud.isEnabled.toggle()
+        sender.state = hud.isEnabled ? .on : .off
     }
 
     @objc private func quit() {

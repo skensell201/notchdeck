@@ -95,9 +95,12 @@ public struct NotchShellView: View {
             peekContent
         case .closed:
             EmptyView()
-        case .peek:
-            // The timed live-activity payload; unrelated to module live content.
-            peekContent
+        case .peek(let payload):
+            // A timed announcement — charging, volume, a device connecting. This
+            // is not module live content, which shows in `.closed` instead.
+            PeekActivityView(payload: payload, notchWidth: model.metrics.rect.width)
+                .frame(width: model.peekSize.width, height: model.peekSize.height)
+                .transition(.opacity)
         case .open, .pinned:
             expandedContent
         }
