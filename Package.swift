@@ -21,13 +21,13 @@ let package = Package(
         // `Calendar` shadows `Foundation.Calendar` in every file that imports it,
         // and this module is nothing but date arithmetic.
         .target(name: "Agenda", dependencies: ["NotchCore", "NotchUI", "Support"]),
-        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf", "Clipboard", "Pomodoro", "Stats"]),
+        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf", "Clipboard", "Pomodoro", "Stats", "Agenda"]),
         .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore"]),
         .testTarget(name: "MediaTests", dependencies: ["Media"]),
         .testTarget(name: "ClipboardTests", dependencies: ["Clipboard"]),
         .testTarget(name: "ShelfTests", dependencies: ["Shelf"]),
         .testTarget(name: "PomodoroTests", dependencies: ["Pomodoro"]),
         .testTarget(name: "StatsTests", dependencies: ["Stats"]),
-        .testTarget(name: "AgendaTests", dependencies: ["Agenda"])
+        .testTarget(name: "AgendaTests", dependencies: ["Agenda", "NotchUI"])
     ]
 )
