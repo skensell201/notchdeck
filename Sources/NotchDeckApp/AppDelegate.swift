@@ -6,6 +6,7 @@ import NotchUI
 import NotchWindow
 import Pomodoro
 import Shelf
+import Stats
 import Support
 
 @MainActor
@@ -17,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var shelf: ShelfModule?
     private var clipboard: ClipboardModule?
     private var timer: TimerModule?
+    private var stats: StatsModule?
     private var surfaces: NotchSurfaceManager?
     private var monitor: NotchEventMonitor?
     private var statusItem: NSStatusItem?
@@ -41,6 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let timer = TimerModule()
         registry.register(timer)
         self.timer = timer
+
+        let stats = StatsModule()
+        registry.register(stats)
+        self.stats = stats
 
         let surfaces = NotchSurfaceManager(registry: registry)
         self.surfaces = surfaces

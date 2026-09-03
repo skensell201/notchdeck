@@ -52,6 +52,8 @@ Running state survives the panel closing, and drives `hasLiveContent` so the col
 
 Battery (percentage, charging, time remaining), CPU load, memory pressure, and network throughput. Sampling runs only while the module is visible.
 
+**A known limitation, measured rather than assumed.** Darwin's `getifaddrs` reports `if_data` byte counters as 32 bits, so they wrap roughly every 4 GiB — hours of ordinary use, not a theoretical edge. A counter that goes backwards is treated as a reset and throughput reports "unknown" for that one interval. The 64-bit alternative is `sysctl` with `NET_RT_IFLIST2` and `if_data64`; two seconds of a blank rate every few hours does not justify replacing a working sampler, so this stands until it annoys someone.
+
 Every reading comes from a `MetricsSampling` protocol so the module and its formatting are tested against fixtures; the real implementation uses IOKit power sources, `host_statistics64`, and `getifaddrs` deltas. Throughput is a rate, so it needs two samples — the first sample after activation reports no rate rather than a wrong one.
 
 ---
