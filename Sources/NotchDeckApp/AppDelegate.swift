@@ -4,6 +4,7 @@ import Media
 import NotchCore
 import NotchUI
 import NotchWindow
+import Pomodoro
 import Shelf
 import Support
 
@@ -15,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var media: MediaModule?
     private var shelf: ShelfModule?
     private var clipboard: ClipboardModule?
+    private var timer: TimerModule?
     private var surfaces: NotchSurfaceManager?
     private var monitor: NotchEventMonitor?
     private var statusItem: NSStatusItem?
@@ -35,6 +37,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let clipboard = ClipboardModule()
         registry.register(clipboard)
         self.clipboard = clipboard
+
+        let timer = TimerModule()
+        registry.register(timer)
+        self.timer = timer
 
         let surfaces = NotchSurfaceManager(registry: registry)
         self.surfaces = surfaces

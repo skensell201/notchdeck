@@ -15,10 +15,12 @@ let package = Package(
         .target(name: "Media", dependencies: ["NotchCore", "NotchUI", "Support"]),
         .target(name: "Clipboard", dependencies: ["NotchCore", "NotchUI", "Support"]),
         .target(name: "Shelf", dependencies: ["NotchCore", "NotchUI", "Support"]),
-        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf", "Clipboard"]),
+        .target(name: "Pomodoro", dependencies: ["NotchCore", "NotchUI", "Support"]),
+        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf", "Clipboard", "Pomodoro"]),
         .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore"]),
         .testTarget(name: "MediaTests", dependencies: ["Media"]),
         .testTarget(name: "ClipboardTests", dependencies: ["Clipboard"]),
-        .testTarget(name: "ShelfTests", dependencies: ["Shelf", "Clipboard"])
+        .testTarget(name: "ShelfTests", dependencies: ["Shelf"]),
+        .testTarget(name: "PomodoroTests", dependencies: ["Pomodoro"])
     ]
 )
