@@ -2,14 +2,16 @@ import SwiftUI
 
 public struct ModuleTabStrip: View {
     private let registry: ModuleRegistry
+    private let modules: [any NotchModule]
 
-    public init(registry: ModuleRegistry) {
+    public init(registry: ModuleRegistry, modules: [any NotchModule]) {
         self.registry = registry
+        self.modules = modules
     }
 
     public var body: some View {
         HStack(spacing: 4) {
-            ForEach(registry.visibleModules, id: \.id) { module in
+            ForEach(modules, id: \.id) { module in
                 let isSelected = registry.selection == module.id
                 Button {
                     registry.select(module.id)

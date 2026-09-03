@@ -71,6 +71,16 @@ public struct NotchShellView: View {
             .blendMode(.plusLighter)
     }
 
+    private var leadingTabs: [any NotchModule] {
+        let all = model.registry.visibleModules
+        return Array(all.prefix((all.count + 1) / 2))
+    }
+
+    private var trailingTabs: [any NotchModule] {
+        let all = model.registry.visibleModules
+        return Array(all.dropFirst((all.count + 1) / 2))
+    }
+
     private var shape: NotchShape {
         NotchShape(
             topCornerRadius: model.mode.isExpanded ? 10 : 6,
@@ -109,9 +119,14 @@ public struct NotchShellView: View {
     @ViewBuilder
     private var expandedContent: some View {
         VStack(spacing: 0) {
+            // Split around the camera housing rather than crowded onto one
+            // flank: a single row runs under the housing as soon as there are
+            // more than about four modules, and the space either side of the
+            // notch is otherwise wasted.
             HStack(spacing: 0) {
-                ModuleTabStrip(registry: model.registry)
-                Spacer(minLength: model.metrics.rect.width + 24)
+                ModuleTabStrip(registry: model.registry, modules: leadingTabs)
+                Spacer(minLength: model.metrics.rect.width + 16)
+                ModuleTabStrip(registry: model.registry, modules: trailingTabs)
             }
             .frame(height: model.metrics.rect.height)
             if let module = model.registry.selectedModule {
