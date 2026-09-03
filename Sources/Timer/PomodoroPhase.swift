@@ -1,5 +1,5 @@
 /// One leg of a pomodoro cycle.
-public enum PomodoroPhase: String, Sendable, Equatable, CaseIterable, Codable {
+public enum PomodoroPhase: String, Sendable, Equatable {
     case work
     case shortBreak
     case longBreak
@@ -26,9 +26,9 @@ public enum PomodoroPhase: String, Sendable, Equatable, CaseIterable, Codable {
 
 /// How long each phase runs, and how many work phases share a long break.
 public struct PomodoroConfiguration: Sendable, Equatable {
-    public var work: Duration
-    public var shortBreak: Duration
-    public var longBreak: Duration
+    public let work: Duration
+    public let shortBreak: Duration
+    public let longBreak: Duration
     /// Work phases per cycle; the long break follows the last one. Always at
     /// least 1, because zero work phases would leave the cycle with no way out
     /// of the break.
