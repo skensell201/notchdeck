@@ -6,6 +6,25 @@ on displays that do not have one.
 Design: [`docs/superpowers/specs/2026-09-02-notchdeck-design.md`](docs/superpowers/specs/2026-09-02-notchdeck-design.md),
 [`docs/superpowers/specs/2026-09-02-p1-media-and-shelf-design.md`](docs/superpowers/specs/2026-09-02-p1-media-and-shelf-design.md)
 
+## Installing
+
+Download `NotchDeck-<version>.dmg` from the
+[latest release](https://github.com/skensell201/notchdeck/releases/latest), open it,
+and drag NotchDeck to Applications.
+
+**The first launch needs a right-click and Open**, not a double-click. The app is
+signed but not notarized — notarization needs a paid Developer ID, and the
+vendored MediaRemote adapter's whole technique is an end-run around a private
+framework, so the App Store was never a destination either. macOS will refuse a
+double-click until you have opened it once the other way.
+
+NotchDeck has no Dock icon. It lives in the menu bar, and that is where Settings
+and Quit are.
+
+Two tabs ask for permission the first time you open them — Mirror for the camera,
+Calendar for events. Everything else needs nothing. Declining leaves that one tab
+explaining itself; the rest of the app is unaffected.
+
 ## Requirements
 
 - macOS 26.0 or later
