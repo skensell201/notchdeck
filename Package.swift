@@ -18,7 +18,10 @@ let package = Package(
         .target(name: "Pomodoro", dependencies: ["NotchCore", "NotchUI", "Support"]),
         .target(name: "Stats", dependencies: ["NotchCore", "NotchUI", "Support"]),
         .target(name: "Mirror", dependencies: ["NotchCore", "NotchUI", "Support"]),
-        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf", "Clipboard", "Pomodoro", "Stats", "Mirror", "Shortcuts", "Agenda"]),
+        // No NotchUI: the sources describe what to announce, and the shell — which
+        // already knows how to draw a peek — decides how it looks.
+        .target(name: "LiveActivities", dependencies: ["NotchCore", "Support"]),
+        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf", "Clipboard", "Pomodoro", "Stats", "Mirror", "Shortcuts", "Agenda", "LiveActivities"]),
         .target(name: "Shortcuts", dependencies: ["NotchCore", "NotchUI", "Support"]),
         // Named for what it shows rather than for EventKit: a target called
         // `Calendar` shadows `Foundation.Calendar` in every file that imports it,
@@ -31,6 +34,7 @@ let package = Package(
         .testTarget(name: "PomodoroTests", dependencies: ["Pomodoro"]),
         .testTarget(name: "StatsTests", dependencies: ["Stats"]),
         .testTarget(name: "ShortcutsTests", dependencies: ["Shortcuts"]),
-        .testTarget(name: "AgendaTests", dependencies: ["Agenda", "NotchUI"])
+        .testTarget(name: "AgendaTests", dependencies: ["Agenda", "NotchUI"]),
+        .testTarget(name: "LiveActivitiesTests", dependencies: ["LiveActivities"])
     ]
 )
