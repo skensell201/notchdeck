@@ -55,6 +55,10 @@ rendering or windowing:
 - [ ] Scrolling over an ordinary window still scrolls that window.
 - [ ] Attaching a display while the notch is open gives the new display an open notch too, not a collapsed one.
 - [ ] Running `Contents/MacOS/NotchDeck` directly while an instance is already running is not a supported path; use `./Scripts/run.sh`.
+- [ ] On a dark wallpaper the collapsed notch is visible enough to aim at.
+- [ ] On a light wallpaper the expanded panel has a clear edge and does not look pasted on.
+- [ ] No glow or bright line appears above the panel, across the menu bar or the bezel.
+- [ ] Clicks still pass through the reserved margin around the panel — the bloom must not swallow them.
 
 ## Layout
 

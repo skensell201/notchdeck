@@ -17,20 +17,24 @@ public final class NotchViewModel {
     /// concave top corners are visible against the menu bar instead of hiding
     /// behind the opaque camera housing.
     public let closedFlare: CGFloat
+    /// How the shell is painted. Layout never reads this except to reserve room
+    /// for the bloom.
+    public let appearance: NotchAppearance
 
     public init(
         metrics: NotchMetrics,
         openSize: CGSize = CGSize(width: 620, height: 200),
         peekSideWidth: CGFloat = 140,
-        closedFlare: CGFloat = 8
+        closedFlare: CGFloat = 8,
+        appearance: NotchAppearance = NotchAppearance()
     ) {
         self.metrics = metrics
         self.openSize = openSize
         self.peekSideWidth = peekSideWidth
         self.closedFlare = closedFlare
+        self.appearance = appearance
     }
 
-    /// The size the notch surface should currently occupy.
     /// The size the peek band settles at. Content is laid out at this size for the
     /// whole animation so it never reflows while the panel is in flight.
     public var peekSize: CGSize {
@@ -49,14 +53,19 @@ public final class NotchViewModel {
     }
 
     /// The maximum size the hosting panel must reserve, regardless of mode.
+    ///
+    /// Larger than any shape the shell draws: the extra `bloomMargin` is the room
+    /// the glow and shadow need, and without it they would be clipped flat against
+    /// the window edge. Hover, hit testing and the presented rect all keep
+    /// following the shape, never this.
     public var maximumSize: CGSize {
         CGSize(
             width: max(
                 openSize.width,
                 metrics.rect.width + peekSideWidth * 2,
                 metrics.rect.width + closedFlare * 2
-            ),
-            height: max(openSize.height, metrics.rect.height)
+            ) + appearance.bloomMargin,
+            height: max(openSize.height, metrics.rect.height) + appearance.bloomMargin
         )
     }
 
