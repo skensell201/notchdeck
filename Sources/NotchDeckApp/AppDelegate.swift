@@ -7,6 +7,7 @@ import NotchUI
 import NotchWindow
 import Pomodoro
 import Shelf
+import Shortcuts
 import Stats
 import Support
 
@@ -21,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var timer: TimerModule?
     private var stats: StatsModule?
     private var mirror: MirrorModule?
+    private var shortcuts: ShortcutsModule?
     private var surfaces: NotchSurfaceManager?
     private var monitor: NotchEventMonitor?
     private var statusItem: NSStatusItem?
@@ -53,6 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let mirror = MirrorModule()
         registry.register(mirror)
         self.mirror = mirror
+
+        let shortcuts = ShortcutsModule()
+        registry.register(shortcuts)
+        self.shortcuts = shortcuts
 
         let surfaces = NotchSurfaceManager(registry: registry)
         self.surfaces = surfaces
