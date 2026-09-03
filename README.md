@@ -93,6 +93,13 @@ rendering or windowing:
 - [ ] A finished pomodoro phase chimes and moves to the next phase on its own.
 - [ ] The Stats tab shows battery, CPU, memory and network, and the numbers move.
 - [ ] Network throughput may read as unknown for a couple of seconds every few hours — that is the 32-bit counter wrapping, not a bug.
+- [ ] Opening the Mirror tab asks for camera access once, then shows a mirrored preview; the camera light goes out when the notch closes.
+- [ ] Denying camera access leaves a button that opens the right System Settings pane.
+- [ ] Opening the Calendar tab asks for calendar access once, then lists today and the next few days.
+- [ ] A meeting with a Zoom, Meet, Teams or Webex link shows a join button that opens it.
+- [ ] Birthdays do not appear in the calendar list; meetings that ended more than fifteen minutes ago do not either.
+- [ ] The Shortcuts tab lists your shortcuts and running one works; with no shortcuts saved the list is empty, which is correct.
+- [ ] All eight tabs fit either side of the camera housing and none is hidden behind it.
 
 ## Layout
 
@@ -106,6 +113,9 @@ rendering or windowing:
 | `Clipboard` | Clipboard history: store, pasteboard watcher, search |
 | `Pomodoro` | Pomodoro timer: phase machine, countdown, peek |
 | `Stats` | Battery, CPU, memory and network throughput |
+| `Mirror` | Camera preview with a mirrored image |
+| `Shortcuts` | Shortcuts launcher: list, pin, run |
+| `Agenda` | Calendar: upcoming events and meeting links |
 | `NotchDeckApp` | Entry point, menu bar item, wiring |
 | `Support` | Shared logging |
 
