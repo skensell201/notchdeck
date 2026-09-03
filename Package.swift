@@ -20,7 +20,8 @@ let package = Package(
         .target(name: "Mirror", dependencies: ["NotchCore", "NotchUI", "Support"]),
         .target(name: "SystemHUD", dependencies: ["Support"]),
         .target(name: "Preferences", dependencies: ["NotchCore", "Support"]),
-        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf", "Clipboard", "Pomodoro", "Stats", "Mirror", "Shortcuts", "Agenda", "SystemHUD", "LiveActivities", "Preferences"]),
+        .target(name: "SettingsUI", dependencies: ["NotchCore", "NotchUI", "Preferences", "Support"]),
+        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf", "Clipboard", "Pomodoro", "Stats", "Mirror", "Shortcuts", "Agenda", "SystemHUD", "LiveActivities", "Preferences", "SettingsUI"]),
         // No NotchUI: the sources describe what to announce, and the shell — which
         // already knows how to draw a peek — decides how it looks.
         .target(name: "LiveActivities", dependencies: ["NotchCore", "Support"]),
@@ -37,6 +38,7 @@ let package = Package(
         .testTarget(name: "StatsTests", dependencies: ["Stats"]),
         .testTarget(name: "SystemHUDTests", dependencies: ["SystemHUD"]),
         .testTarget(name: "PreferencesTests", dependencies: ["Preferences"]),
+        .testTarget(name: "SettingsUITests", dependencies: ["SettingsUI", "NotchUI"]),
         .testTarget(name: "ShortcutsTests", dependencies: ["Shortcuts"]),
         .testTarget(name: "AgendaTests", dependencies: ["Agenda", "NotchUI"]),
         .testTarget(name: "LiveActivitiesTests", dependencies: ["LiveActivities"])
