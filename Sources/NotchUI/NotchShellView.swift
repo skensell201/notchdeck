@@ -26,19 +26,15 @@ public struct NotchShellView: View {
                 .overlay { rim }
                 .overlay(alignment: .top) { content }
                 .clipShape(shape)
-                // Composited first so both shadows are cast by the finished shape
+                // Composited first so the shadow is cast by the finished shape
                 // rather than by each layer separately, and applied after the clip
-                // so the clip does not cut them away.
+                // so the clip does not cut it away. There is deliberately no outer
+                // glow: it read as a halo around the notch rather than as depth.
                 .compositingGroup()
                 .shadow(
                     color: .black.opacity(model.appearance.shadowOpacity),
                     radius: model.appearance.shadowRadius,
-                    y: model.appearance.glowOffset
-                )
-                .shadow(
-                    color: .white.opacity(model.appearance.glowOpacity),
-                    radius: model.appearance.glowRadius,
-                    y: model.appearance.glowOffset
+                    y: model.appearance.shadowOffset
                 )
                 // One animation scope, not two: separate modifiers on `targetSize`
                 // and `mode` nest, and the same change then drives both. Keyed

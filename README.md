@@ -86,6 +86,13 @@ rendering or windowing:
 - [ ] Dropping onto the AirDrop zone highlights it during the drag and opens the AirDrop picker on release.
 - [ ] Clicking the AirDrop zone with items on the shelf offers all of them.
 - [ ] Clear asks for confirmation and empties the shelf without touching the files.
+- [ ] Copying text in any app adds it to the Clipboard tab within about half a second; clicking an entry copies it back.
+- [ ] Copying from a password manager adds nothing to the history.
+- [ ] A pinned clipboard entry survives Clear and survives the history filling up.
+- [ ] Starting the timer and closing the notch leaves the countdown visible in the collapsed band.
+- [ ] A finished pomodoro phase chimes and moves to the next phase on its own.
+- [ ] The Stats tab shows battery, CPU, memory and network, and the numbers move.
+- [ ] Network throughput may read as unknown for a couple of seconds every few hours — that is the 32-bit counter wrapping, not a bug.
 
 ## Layout
 
@@ -96,6 +103,9 @@ rendering or windowing:
 | `NotchWindow` | `NSPanel` surfaces, screen adapters, event monitors |
 | `Media` | The now-playing module: adapter subprocess, decoder, transport commands, expanded player and peek views |
 | `Shelf` | File shelf: store, tiles, drag-out, AirDrop |
+| `Clipboard` | Clipboard history: store, pasteboard watcher, search |
+| `Pomodoro` | Pomodoro timer: phase machine, countdown, peek |
+| `Stats` | Battery, CPU, memory and network throughput |
 | `NotchDeckApp` | Entry point, menu bar item, wiring |
 | `Support` | Shared logging |
 
