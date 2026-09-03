@@ -7,6 +7,7 @@ import Mirror
 import NotchCore
 import NotchUI
 import NotchWindow
+import Preferences
 import Pomodoro
 import Shelf
 import Shortcuts
@@ -17,7 +18,7 @@ import Support
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Log.make("app")
-    private let controller = NotchController()
+    private var controller = NotchController()
     private var registry: ModuleRegistry?
     private var media: MediaModule?
     private var shelf: ShelfModule?
@@ -29,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var agenda: AgendaModule?
     private var activities: LiveActivityCenter?
     private var hud: SystemHUDController?
+    private let preferences = Preferences()
+    private var escapeMonitor: Any?
     private var surfaces: NotchSurfaceManager?
     private var monitor: NotchEventMonitor?
     private var statusItem: NSStatusItem?
@@ -36,7 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         routeSignalsThroughTerminate()
-        let registry = ModuleRegistry()
+        controller = NotchController(timing: preferences.timing)
+
+        let registry = ModuleRegistry(layout: preferences.moduleLayout)
         let media = MediaModule()
         registry.register(media)
         self.registry = registry
@@ -70,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registry.register(agenda)
         self.agenda = agenda
 
-        let surfaces = NotchSurfaceManager(registry: registry)
+        let surfaces = NotchSurfaceManager(registry: registry, syntheticSize: preferences.syntheticNotchSize)
         self.surfaces = surfaces
 
         surfaces.onDragEntered = { [weak self] in
@@ -124,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hud.applyPreference()
         self.hud = hud
 
+        installEscapeMonitorIfPermitted()
         installStatusItem()
         logger.notice("NotchDeck started with \(surfaces.allSurfaces.count, privacy: .public) surfaces")
     }
@@ -148,6 +154,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the app indefinitely.
         media?.shutdown()
         activities?.stop()
+        if let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+        }
+        // The layout is the one setting the app itself changes at runtime, when a
+        // module registers for the first time.
+        if let registry {
+            preferences.moduleLayout = registry.layout
+        }
         // Last chance to give the Mac its own volume overlay back.
         hud?.restore()
         monitor?.stop()
@@ -187,6 +201,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openNotch() {
         controller.send(.clicked)
+    }
+
+    /// `.escapePressed` has been in the state machine since P0 with nothing to
+    /// send it: a global key monitor needs Accessibility, and nothing else in the
+    /// app needs any permission at all. So it is opt-in and only installed when
+    /// the grant is already there — asking for Accessibility on launch, for a
+    /// keyboard shortcut, would be a bad trade.
+    private func installEscapeMonitorIfPermitted() {
+        guard preferences.dismissWithEscape, AXIsProcessTrusted() else { return }
+        escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            guard event.keyCode == 53 else { return }
+            MainActor.assumeIsolated { self?.controller.send(.escapePressed) }
+        }
     }
 
     @objc private func toggleVolumeHUD(_ sender: NSMenuItem) {
