@@ -15,7 +15,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var monitor: NotchEventMonitor?
     private var statusItem: NSStatusItem?
     private var termination: DispatchSourceSignal?
-    private var terminationSignal: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         routeSignalsThroughTerminate()
@@ -49,7 +48,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // peek has nothing to show.
         media.activate()
 
-        routeSIGTERMThroughTerminate()
         installStatusItem()
         logger.notice("NotchDeck started with \(surfaces.allSurfaces.count, privacy: .public) surfaces")
     }
@@ -74,21 +72,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the app indefinitely.
         media?.shutdown()
         monitor?.stop()
-    }
-
-    /// AppKit does not handle `SIGTERM`: the default disposition kills the process
-    /// on the spot and `applicationWillTerminate` never runs, so a `pkill -x
-    /// NotchDeck` or a launchd stop would leave the adapter orphaned exactly like
-    /// `SIGKILL` does. Turn the signal into an ordinary quit so the delegate's
-    /// shutdown path runs for it too.
-    private func routeSIGTERMThroughTerminate() {
-        signal(SIGTERM, SIG_IGN)
-        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-        source.setEventHandler {
-            MainActor.assumeIsolated { NSApp.terminate(nil) }
-        }
-        source.resume()
-        terminationSignal = source
     }
 
     private func installStatusItem() {
