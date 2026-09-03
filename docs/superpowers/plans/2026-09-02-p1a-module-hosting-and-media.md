@@ -2168,6 +2168,11 @@ public final class MediaModule: NotchModule {
 
     /// The current track, or nil when nothing is known.
     public private(set) var state: NowPlaying?
+    /// The current track's artwork, decoded once per distinct image rather than
+    /// on every redraw. Keyed by the bytes, not `contentItemIdentifier`: the spike
+    /// showed the identifier changing on every pause and resume while the artwork
+    /// stayed the same, and artwork only ever arrives in full snapshots anyway.
+    public private(set) var artworkImage: NSImage?
     /// True once the adapter probe has failed; the UI explains itself instead of
     /// pretending nothing is playing.
     public private(set) var isDegraded = false
@@ -2175,6 +2180,8 @@ public final class MediaModule: NotchModule {
     public private(set) var positionTick: Int64 = 0
     /// Set while the user drags the scrubber, so incoming updates do not fight them.
     public var scrubbingProgress: Double?
+    private var awaitingSeekEcho = false
+    private var seekEchoTimeout: Task<Void, Never>?
     /// True once a paused track has sat untouched for `peekStaleness`. Observable
     /// so the shell can react to it: the flag flips from a scheduled task rather
     /// than being recomputed from timestamps, which nothing would re-read.
@@ -2184,6 +2191,7 @@ public final class MediaModule: NotchModule {
     private let paths: AdapterPaths?
     private let commands: MediaCommands
     private var decoder = NowPlayingDecoder()
+    private var artworkData: Data?
     private var streamTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
     private var stalenessTask: Task<Void, Never>?
@@ -2207,11 +2215,18 @@ public final class MediaModule: NotchModule {
         // Both halves are independently idempotent: the stream starts once and
         // outlives the panel, while the tick is panel-scoped and restarts every
         // time the notch opens.
-        if streamTask == nil {
-            startStream()
-        }
+        startStreaming()
         if tickTask == nil {
             startTicking()
+        }
+    }
+
+    /// Starts only the now-playing stream, without the panel-scoped redraw tick.
+    /// The app calls this at launch so the collapsed peek works before the panel
+    /// is ever opened; `activate()` is what the registry calls when it is.
+    public func startStreaming() {
+        if streamTask == nil {
+            startStream()
         }
     }
 
@@ -2229,7 +2244,7 @@ public final class MediaModule: NotchModule {
 
     public func peekView() -> AnyView? {
         guard hasLiveContent, let state else { return nil }
-        return AnyView(MediaPeekView(state: state))
+        return AnyView(MediaPeekView(state: state, artwork: artworkImage))
     }
 
     public var hasLiveContent: Bool {
@@ -2244,6 +2259,7 @@ public final class MediaModule: NotchModule {
         streamTask?.cancel()
         tickTask?.cancel()
         stalenessTask?.cancel()
+        seekEchoTimeout?.cancel()
         currentSource?.stop()
         streamTask = nil
         tickTask = nil
@@ -2258,15 +2274,40 @@ public final class MediaModule: NotchModule {
     }
 
     public func seek(toProgress progress: Double) {
-        guard let duration = state?.durationMicros else { return }
-        let target = Int64(Double(duration) * min(max(progress, 0), 1))
+        let clamped = min(max(progress, 0), 1)
+        guard let duration = state?.durationMicros else {
+            // Nothing to seek in; drop the drag rather than leaving the bar
+            // frozen at the drag position for every later track.
+            scrubbingProgress = nil
+            return
+        }
+        let target = Int64(Double(duration) * clamped)
+
+        // Hold the bar at the target until the adapter reports the new position,
+        // otherwise it snaps back to the pre-seek position for the round trip.
+        scrubbingProgress = clamped
+        awaitingSeekEcho = true
+        seekEchoTimeout?.cancel()
+
         Task {
             let succeeded = await commands.seek(toMicros: target)
             if !succeeded {
                 logger.notice("seek failed; the adapter is unavailable")
+                releaseScrubber()
             }
-            scrubbingProgress = nil
         }
+        seekEchoTimeout = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            releaseScrubber()
+        }
+    }
+
+    private func releaseScrubber() {
+        awaitingSeekEcho = false
+        seekEchoTimeout?.cancel()
+        seekEchoTimeout = nil
+        scrubbingProgress = nil
     }
 
     public var progress: Double? {
@@ -2318,6 +2359,7 @@ public final class MediaModule: NotchModule {
                 let delay = AdapterBackoff.delay(forAttempt: attempt)
                 if delay > .zero {
                     try? await Task.sleep(for: delay)
+                    guard !Task.isCancelled else { break }
                 }
                 let source = PerlAdapterStream(paths: paths)
                 self.currentSource = source
@@ -2332,12 +2374,23 @@ public final class MediaModule: NotchModule {
     }
 
     private func consume(_ line: String) {
+        let previous = state
         if let updated = decoder.consume(line: line) {
             state = updated
         } else if decoder.snapshot == nil {
+            // An empty full payload is the adapter's "nothing playing" signal.
             state = nil
         }
+        if awaitingSeekEcho, positionChanged(from: previous, to: state) {
+            releaseScrubber()
+        }
+        refreshArtwork()
         rescheduleStaleness()
+    }
+
+    private func positionChanged(from previous: NowPlaying?, to current: NowPlaying?) -> Bool {
+        previous?.elapsedTimeMicros != current?.elapsedTimeMicros
+            || previous?.timestampEpochMicros != current?.timestampEpochMicros
     }
 
     /// Drives `isStale` without polling: a playing track is never stale, and a
@@ -2347,7 +2400,7 @@ public final class MediaModule: NotchModule {
     private func rescheduleStaleness() {
         stalenessTask?.cancel()
         stalenessTask = nil
-        guard let state, state.playbackRate == 0 else {
+        guard let state, state.playbackRate == 0, !state.isPlaying else {
             isStale = false
             return
         }
@@ -2364,6 +2417,13 @@ public final class MediaModule: NotchModule {
             guard !Task.isCancelled else { return }
             self?.isStale = true
         }
+    }
+
+    private func refreshArtwork() {
+        let data = state?.artwork?.data
+        guard data != artworkData else { return }
+        artworkData = data
+        artworkImage = data.flatMap(NSImage.init(data:))
     }
 
     private func startTicking() {
@@ -2385,7 +2445,9 @@ public final class MediaModule: NotchModule {
 import SwiftUI
 
 struct MediaPlayerView: View {
-    @Bindable var module: MediaModule
+    // A plain reference is enough: the module is `@Observable`, so reads in
+    // `body` are tracked, and the gesture closures mutate it directly.
+    let module: MediaModule
 
     var body: some View {
         if module.isDegraded && module.state == nil {
@@ -2416,7 +2478,7 @@ struct MediaPlayerView: View {
 
     private func player(_ state: NowPlaying) -> some View {
         HStack(spacing: 14) {
-            artwork(state)
+            artwork
                 .frame(width: 96, height: 96)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
@@ -2441,8 +2503,8 @@ struct MediaPlayerView: View {
     }
 
     @ViewBuilder
-    private func artwork(_ state: NowPlaying) -> some View {
-        if let data = state.artwork?.data, let image = NSImage(data: data) {
+    private var artwork: some View {
+        if let image = module.artworkImage {
             Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
         } else {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -2526,10 +2588,12 @@ import SwiftUI
 
 struct MediaPeekView: View {
     let state: NowPlaying
+    /// Decoded by the module once per distinct image; nil shows a placeholder.
+    let artwork: NSImage?
 
     var body: some View {
         HStack(spacing: 0) {
-            artwork
+            artworkView
                 .frame(width: 20, height: 20)
                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             Spacer(minLength: 0)
@@ -2540,9 +2604,9 @@ struct MediaPeekView: View {
     }
 
     @ViewBuilder
-    private var artwork: some View {
-        if let data = state.artwork?.data, let image = NSImage(data: data) {
-            Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+    private var artworkView: some View {
+        if let artwork {
+            Image(nsImage: artwork).resizable().aspectRatio(contentMode: .fill)
         } else {
             RoundedRectangle(cornerRadius: 4, style: .continuous).fill(.white.opacity(0.15))
         }
@@ -2562,7 +2626,15 @@ private struct Visualiser: View {
                     .frame(width: 3, height: height(index))
             }
         }
-        .animation(.easeInOut(duration: 0.45).repeatForever(autoreverses: true), value: phase)
+        // The repeating curve must apply only while playing: applied to the
+        // 1 → 0 change as well, it would keep the bars bouncing between the
+        // two heights forever instead of settling flat on pause.
+        .animation(
+            isAnimating
+                ? .easeInOut(duration: 0.45).repeatForever(autoreverses: true)
+                : .easeInOut(duration: 0.2),
+            value: phase
+        )
         .onAppear { phase = isAnimating ? 1 : 0 }
         .onChange(of: isAnimating) { _, playing in phase = playing ? 1 : 0 }
     }
@@ -2668,7 +2740,7 @@ A leftward swipe moves forward, matching the natural-scrolling convention the ac
 Finally, start the media stream at launch so the peek works before the panel is ever opened:
 
 ```swift
-        media.activate()
+        media.startStreaming()
 ```
 
 Add `registry` and `media` as strong stored properties on the delegate.
@@ -2688,19 +2760,18 @@ Stop the adapter on the way out. `applicationWillTerminate` is the last main-act
 That covers the menu item, but not `SIGTERM`: AppKit installs no handler for it, so `pkill -x NotchDeck` kills the process on the spot and `applicationWillTerminate` never runs — verified, the adapter survived it exactly as it survives `SIGKILL`. Route the signal through an ordinary quit, called from `applicationDidFinishLaunching` and with the source stored on the delegate:
 
 ```swift
-    /// AppKit does not handle `SIGTERM`: the default disposition kills the process
-    /// on the spot and `applicationWillTerminate` never runs, so a `pkill -x
-    /// NotchDeck` or a launchd stop would leave the adapter orphaned exactly like
-    /// `SIGKILL` does. Turn the signal into an ordinary quit so the delegate's
-    /// shutdown path runs for it too.
-    private func routeSIGTERMThroughTerminate() {
+    /// A Cocoa app that receives SIGTERM just dies — `applicationWillTerminate`
+    /// never runs, so nothing would stop the adapter subprocess. `pkill`, `run.sh`
+    /// and logout all deliver SIGTERM. Turning it into a normal `terminate` gives
+    /// every quit path the same clean shutdown.
+    private func routeSignalsThroughTerminate() {
         signal(SIGTERM, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         source.setEventHandler {
-            MainActor.assumeIsolated { NSApp.terminate(nil) }
+            NSApp.terminate(nil)
         }
         source.resume()
-        terminationSignal = source
+        termination = source
     }
 ```
 

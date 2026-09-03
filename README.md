@@ -3,7 +3,8 @@
 A macOS utility surface built into the MacBook notch — and onto a synthetic notch
 on displays that do not have one.
 
-Design: [`docs/superpowers/specs/2026-09-02-notchdeck-design.md`](docs/superpowers/specs/2026-09-02-notchdeck-design.md)
+Design: [`docs/superpowers/specs/2026-09-02-notchdeck-design.md`](docs/superpowers/specs/2026-09-02-notchdeck-design.md),
+[`docs/superpowers/specs/2026-09-02-p1-media-and-shelf-design.md`](docs/superpowers/specs/2026-09-02-p1-media-and-shelf-design.md)
 
 ## Requirements
 
@@ -30,8 +31,11 @@ swift test          # unit tests
 ./Scripts/run.sh    # build, bundle, sign, launch
 ```
 
-NotchDeck is an accessory app with no Dock icon and no window to close from; the
-menu bar item's "Quit NotchDeck" is the only way to quit it.
+NotchDeck is an accessory app with no Dock icon and no window to close from. The
+menu bar item's "Quit NotchDeck" quits it; `pkill -x NotchDeck` is equivalent,
+since `SIGTERM` is routed through the same clean shutdown. A wedged app ignores
+`SIGTERM` and needs `kill -9`, after which the next launch reaps the orphaned
+adapter subprocess.
 
 ## Manual verification
 
@@ -68,6 +72,11 @@ rendering or windowing:
 - [ ] With nothing ever played since login, the panel says "Nothing playing" rather than showing a stale track.
 - [ ] Quitting cleanly — menu or `pkill -x NotchDeck` — with nothing playing leaves no orphaned `perl` process: `pgrep -f mediaremote-adapter` is empty within a couple of seconds.
 - [ ] After `kill -9` of a running instance, the orphaned `perl` survives; the next launch reaps it, and `pgrep -fl mediaremote-adapter` then shows exactly one `perl`, the new instance's.
+- [ ] Hovering the widened peek band (not just the bare notch) opens the panel.
+- [ ] With a track playing, `kill -9` the `perl` adapter process (not the app); the peek recovers within a few seconds.
+- [ ] Launching with a track that has been paused for more than 90 s shows no peek; the expanded panel still shows the track.
+- [ ] A two-finger swipe **left** over the notch skips to the next track; right goes to the previous one.
+- [ ] Media-key fallback: rename `Contents/Frameworks/MediaRemoteAdapter.framework` inside a built bundle so the probe fails, relaunch, and confirm the transport buttons still control playback. If they do not, note that synthesising media keys needs Accessibility permission on this macOS.
 
 ## Layout
 
@@ -76,6 +85,7 @@ rendering or windowing:
 | `NotchCore` | State machine, gestures, geometry — pure Swift, fully unit-tested |
 | `NotchUI` | SwiftUI shell and the notch shape |
 | `NotchWindow` | `NSPanel` surfaces, screen adapters, event monitors |
+| `Media` | The now-playing module: adapter subprocess, decoder, transport commands, expanded player and peek views |
 | `NotchDeckApp` | Entry point, menu bar item, wiring |
 | `Support` | Shared logging |
 

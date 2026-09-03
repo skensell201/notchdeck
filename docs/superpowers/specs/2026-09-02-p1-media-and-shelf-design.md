@@ -34,21 +34,33 @@ Split across two targets so the orderable, persistable part stays testable witho
 @MainActor
 public protocol NotchModule: AnyObject {
     static var id: ModuleID { get }
+
     var title: String { get }
     var symbolName: String { get }
 
-    /// Called when the module becomes visible, and when it is hidden. A module
-    /// must release subprocesses, timers and pollers on `deactivate`.
+    /// Called when the module becomes visible and when it is hidden.
+    ///
+    /// `deactivate` must release everything that only the open panel needed —
+    /// timers, pollers, capture sessions. A module that feeds `peekView()` keeps
+    /// that one source running, because the collapsed notch still shows it; the
+    /// media module is the example, and it stops only its redraw tick.
     func activate()
     func deactivate()
 
-    /// The module's content in the expanded panel.
     func expandedView() -> AnyView
 
     /// A compact representation for the collapsed notch, or nil when the module
-    /// has nothing live to show. Media returns artwork and a visualiser while a
-    /// track plays; the shelf returns nil.
+    /// has nothing live to show.
     func peekView() -> AnyView?
+
+    /// True when `peekView()` would return content. Must be cheap and must be
+    /// backed by observable state, because the shell reads it on every layout
+    /// pass to decide how wide the collapsed notch is.
+    var hasLiveContent: Bool { get }
+}
+
+public extension NotchModule {
+    var id: ModuleID { Self.id }
 }
 ```
 
@@ -58,7 +70,7 @@ public protocol NotchModule: AnyObject {
 
 Modules are app-level singletons; their views are instantiated per surface. Module state must therefore be observable and shared, never owned by a view.
 
-The `peek` mode P0 already implements is now fed by modules: when the media module has a playing track and the notch is collapsed, the shell shows its `peekView()`.
+The collapsed notch widens to the peek band whenever `registry.hasLiveContent` is true, and the shell shows the registry's `peekView()`. The state machine stays in `.closed` for this — it never transitions to `.peek`. `.peek` remains the timed mode P3 reserves for live activities (charging, volume), which are entered by an event and expire on their own; a playing track is not an event with a duration, so widening the collapsed notch is driven by content, not by mode.
 
 ---
 
@@ -100,11 +112,15 @@ The `MediaRemoteAdapterTestClient` is bundled too, because it is what makes `tes
 - `MediaCommands` — sends `send`/`seek` through the adapter, falling back to HID media keys when the adapter is unavailable.
 - `MediaModule` — the `NotchModule`, owning the above and publishing state to views.
 
-**Lifecycle:** the `stream` subprocess must not outlive the app, and nothing does that for free. While a track plays the adapter writes constantly and dies of `SIGPIPE` the moment its parent is gone; idle, it writes nothing — the adapter's "zero output when nothing changes" — so it never notices and survives reparented to launchd indefinitely. `AsyncStream`'s `onTermination` does not help either: it fires only when the stream finishes or the consuming task is cancelled, and a process exit does neither. So the shutdown has two halves. Graceful exits reach `applicationWillTerminate`, which calls `MediaModule.shutdown()`: it cancels the stream, tick and staleness tasks and calls `stop()` on the live `PerlAdapterStream` synchronously, because that delegate callback is the last main-actor turn and a mere task cancellation would only take effect on a turn that never comes. A menu quit gets there on its own; `SIGTERM` does not — AppKit installs no handler, so the default disposition kills the process before any delegate method runs, exactly like `SIGKILL`. The delegate therefore installs a `DispatchSource` signal source that turns `SIGTERM` into `NSApp.terminate`, so `pkill -x NotchDeck` and a launchd stop take the graceful path too. Ungraceful exits — `SIGKILL`, a crash — cannot run anything, so every launch first awaits `AdapterReaper.reapOrphans(of:)` before the probe: a `pkill -f` on the bundle's own absolute script path (regex-escaped), which matches only adapters started from *this* bundle and leaves other apps' copies alone. Exit 0 (killed something) and 1 (nothing matched) are both success; anything else is logged and ignored, since the worst outcome is the orphan we already had.
+**Lifecycle:** the `stream` subprocess must not outlive the app, and nothing does that for free. While a track plays the adapter writes constantly and dies of `SIGPIPE` the moment its parent is gone; idle, it writes nothing — the adapter's "zero output when nothing changes" — so it never notices and survives reparented to launchd indefinitely. `AsyncStream`'s `onTermination` does not help either: it fires only when the stream finishes or the consuming task is cancelled, and a process exit does neither.
+
+Starting the stream and activating the module are deliberately separate. `MediaModule.startStreaming()` starts only the adapter stream and is idempotent; the app calls it once at launch, before the panel is ever opened, so the collapsed peek has something to show from the start. `activate()` calls `startStreaming()` and additionally starts the once-a-second redraw tick that advances the scrubber — the registry calls it only while the panel is open, and `deactivate()` stops the tick alone, leaving the stream running for the peek.
+
+The shutdown has two halves. Graceful exits reach `applicationWillTerminate`, which calls `MediaModule.shutdown()`: it cancels the stream, tick and staleness tasks and calls `stop()` on the live `PerlAdapterStream` synchronously, because that delegate callback is the last main-actor turn and a mere task cancellation would only take effect on a turn that never comes. A menu quit gets there on its own; `SIGTERM` does not — AppKit installs no handler, so the default disposition kills the process before any delegate method runs, exactly like `SIGKILL`. The delegate therefore installs a `DispatchSource` signal source that turns `SIGTERM` into `NSApp.terminate`, so `pkill -x NotchDeck` and a launchd stop take the graceful path too. That handler still runs on the main queue, though: a wedged main thread never dispatches it, so `SIGTERM` against a hung instance does nothing and only `SIGKILL` actually ends it. Ungraceful exits — `SIGKILL`, a crash, or a `SIGTERM` a wedged main thread never got to handle — cannot run anything, so every launch first awaits `AdapterReaper.reapOrphans(of:)` before the probe: a `pkill -f` on the bundle's own absolute script path (regex-escaped), which matches only adapters started from *this* bundle and leaves other apps' copies alone. Exit 0 (killed something) and 1 (nothing matched) are both success; anything else is logged and ignored, since the worst outcome is the orphan we already had.
 
 ### 3.4 Behaviour
 
-**Expanded view:** artwork (or a placeholder), title and artist, the source app's icon, a draggable scrubber with elapsed and remaining time, and previous / play-pause / next. Scrubbing seeks on release, not continuously.
+**Expanded view:** artwork (or a placeholder), title, artist or album, a draggable scrubber, and previous / play-pause / next. Scrubbing seeks on release, not continuously. The source app's icon and elapsed/remaining time labels are deferred to P4 polish.
 
 **Peek view:** artwork thumbnail on one side of the notch and an animated level indicator on the other — the same band shape P0's `peek` mode draws, but reached differently. `NotchModule` exposes an observable `hasLiveContent` predicate; `ModuleRegistry.hasLiveContent` is true when any visible module offers content. While the notch is `.closed` and that is true, `NotchViewModel.targetSize` returns the peek band's size and `NotchShellView` renders the registry's `peekView` — the hover region follows, because it derives from `targetSize`. The state machine never leaves `.closed` for this. `.peek(PeekPayload)` is the *timed* live-activity mode reserved for P3 (charging, volume): it is entered by a `.liveActivity` event and expires on its own. A playing track is not an event with a duration; it is live content that persists for as long as the module offers it, so faking it through `.liveActivity` would either time out under a playing track or need constant re-sending. The media module reports `hasLiveContent` as "a track is known and not stale".
 
