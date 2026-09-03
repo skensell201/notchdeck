@@ -2241,9 +2241,9 @@ This task and the next form one commit, because the branch does not build in bet
 - Modify: `Sources/NotchWindow/NotchSurface.swift`, `Sources/NotchWindow/NotchSurfaceManager.swift`
 - Modify: `README.md`
 
-- [ ] **Step 1: Thread the registry through to surfaces**
+- [x] **Step 1: Thread the registry through to surfaces**
 
-`NotchViewModel` now takes a `ModuleRegistry`. `NotchSurface.init` and `NotchSurfaceManager.init` must accept one and pass it down. Give `NotchSurfaceManager.init` a `registry: ModuleRegistry` parameter before `syntheticSize`.
+Already done as part of Task 3, to keep the branch buildable after that unit landed: `NotchSurface.init` takes `registry: ModuleRegistry` and passes it to `NotchViewModel`; `NotchSurfaceManager.init` takes `registry: ModuleRegistry` (before `syntheticSize`) and passes it to every `NotchSurface` it creates, including in `rebuild()`; `AppDelegate.applicationDidFinishLaunching` already creates `let registry = ModuleRegistry()`, stores it in a strong `private var registry: ModuleRegistry?`, and passes it to `NotchSurfaceManager`. Nothing left to do here — proceed to Step 2, which only needs to register the media module and wire `setPanelVisible`/the swipe route into the already-threaded registry.
 
 - [ ] **Step 2: Build the object graph in the delegate**
 
