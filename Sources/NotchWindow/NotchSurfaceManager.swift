@@ -1,17 +1,20 @@
 import AppKit
 import NotchCore
+import NotchUI
 import Support
 
 /// Owns one `NotchSurface` per screen and rebuilds them when displays change.
 @MainActor
 public final class NotchSurfaceManager {
     private let logger = Log.make("surfaces")
+    private let registry: ModuleRegistry
     private let syntheticSize: CGSize
     private var surfaces: [CGDirectDisplayID: NotchSurface] = [:]
     private var observer: NSObjectProtocol?
     private var mode: NotchMode = .closed
 
-    public init(syntheticSize: CGSize = CGSize(width: 220, height: 32)) {
+    public init(registry: ModuleRegistry, syntheticSize: CGSize = CGSize(width: 220, height: 32)) {
+        self.registry = registry
         self.syntheticSize = syntheticSize
         rebuild()
         observer = NotificationCenter.default.addObserver(
@@ -61,7 +64,7 @@ public final class NotchSurfaceManager {
             if let existing = surfaces[id] {
                 existing.update(screen: screen, syntheticSize: syntheticSize)
             } else {
-                surfaces[id] = NotchSurface(screen: screen, displayID: id, syntheticSize: syntheticSize)
+                surfaces[id] = NotchSurface(screen: screen, displayID: id, registry: registry, syntheticSize: syntheticSize)
             }
         }
 

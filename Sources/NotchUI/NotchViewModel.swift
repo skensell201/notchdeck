@@ -5,6 +5,9 @@ import Observation
 @MainActor
 @Observable
 public final class NotchViewModel {
+    /// The modules available in the expanded panel, shared across every surface.
+    public let registry: ModuleRegistry
+
     /// Geometry of the notch on this screen, in global screen coordinates.
     public var metrics: NotchMetrics
     public var mode: NotchMode = .closed
@@ -22,12 +25,14 @@ public final class NotchViewModel {
     public let appearance: NotchAppearance
 
     public init(
+        registry: ModuleRegistry,
         metrics: NotchMetrics,
         openSize: CGSize = CGSize(width: 620, height: 200),
         peekSideWidth: CGFloat = 140,
         closedFlare: CGFloat = 8,
         appearance: NotchAppearance = NotchAppearance()
     ) {
+        self.registry = registry
         self.metrics = metrics
         self.openSize = openSize
         self.peekSideWidth = peekSideWidth

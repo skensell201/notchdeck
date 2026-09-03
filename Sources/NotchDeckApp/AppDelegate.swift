@@ -1,5 +1,6 @@
 import AppKit
 import NotchCore
+import NotchUI
 import NotchWindow
 import Support
 
@@ -7,12 +8,16 @@ import Support
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Log.make("app")
     private let controller = NotchController()
+    private var registry: ModuleRegistry?
     private var surfaces: NotchSurfaceManager?
     private var monitor: NotchEventMonitor?
     private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let surfaces = NotchSurfaceManager()
+        let registry = ModuleRegistry()
+        self.registry = registry
+
+        let surfaces = NotchSurfaceManager(registry: registry)
         self.surfaces = surfaces
 
         controller.onStateChange = { state in

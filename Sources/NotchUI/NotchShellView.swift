@@ -84,31 +84,48 @@ public struct NotchShellView: View {
         switch model.mode {
         case .closed:
             EmptyView()
-        case .peek(let payload):
-            Text(payload.id)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
+        case .peek:
+            peekContent
+        case .open, .pinned:
+            expandedContent
+        }
+    }
+
+    @ViewBuilder
+    private var peekContent: some View {
+        if let peek = model.registry.peekProvider?.peekView() {
+            peek
                 .padding(.horizontal, model.closedFlare + 4)
+                // Laid out at the final size from the first frame — see the note
+                // on `expandedContent` below; the same reflow-avoidance applies
+                // here while the peek band is animating.
                 .frame(width: model.peekSize.width, height: model.peekSize.height)
                 .transition(.opacity)
-        case .open, .pinned:
-            VStack(spacing: 8) {
-                Text("NotchDeck")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                Text(model.mode == .pinned ? "Pinned — click outside to close" : "Move away to close")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.6))
-            }
-            .padding(.top, model.metrics.rect.height)
-            // Laid out at the final size from the first frame. An overlay is
-            // proposed its parent's *current* size, so without this the text is
-            // squeezed into the collapsed notch, wraps, and unwraps again as the
-            // panel grows — which is what made the expansion look like it swam.
-            .frame(width: model.openSize.width, height: model.openSize.height)
-            .transition(.opacity)
         }
+    }
+
+    @ViewBuilder
+    private var expandedContent: some View {
+        VStack(spacing: 0) {
+            ModuleTabStrip(registry: model.registry)
+                .frame(height: model.metrics.rect.height)
+            if let module = model.registry.selectedModule {
+                module.expandedView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Text("No modules enabled")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 12)
+        // Laid out at the final size from the first frame. An overlay is
+        // proposed its parent's *current* size, so without this the content is
+        // squeezed into the collapsed notch, wraps, and unwraps again as the
+        // panel grows — which is what made the expansion look like it swam.
+        .frame(width: model.openSize.width, height: model.openSize.height)
+        .transition(.opacity)
     }
 }

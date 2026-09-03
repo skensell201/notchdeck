@@ -13,11 +13,11 @@ public final class NotchSurface {
     private let panel: NotchPanel
     private let container: NotchContainerView
 
-    public init(screen: NSScreen, displayID: CGDirectDisplayID, syntheticSize: CGSize) {
+    public init(screen: NSScreen, displayID: CGDirectDisplayID, registry: ModuleRegistry, syntheticSize: CGSize) {
         self.displayID = displayID
 
         let metrics = NotchResolver.resolve(screen: screen.notchDescription, syntheticSize: syntheticSize)
-        let model = NotchViewModel(metrics: metrics)
+        let model = NotchViewModel(registry: registry, metrics: metrics)
         self.model = model
 
         let maximum = model.maximumSize
