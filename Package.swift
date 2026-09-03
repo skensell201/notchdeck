@@ -17,12 +17,20 @@ let package = Package(
         .target(name: "Shelf", dependencies: ["NotchCore", "NotchUI", "Support"]),
         .target(name: "Pomodoro", dependencies: ["NotchCore", "NotchUI", "Support"]),
         .target(name: "Stats", dependencies: ["NotchCore", "NotchUI", "Support"]),
-        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf", "Clipboard", "Pomodoro", "Stats"]),
+        .target(name: "Mirror", dependencies: ["NotchCore", "NotchUI", "Support"]),
+        .executableTarget(name: "NotchDeckApp", dependencies: ["NotchCore", "NotchUI", "NotchWindow", "Support", "Media", "Shelf", "Clipboard", "Pomodoro", "Stats", "Mirror", "Shortcuts", "Agenda"]),
+        .target(name: "Shortcuts", dependencies: ["NotchCore", "NotchUI", "Support"]),
+        // Named for what it shows rather than for EventKit: a target called
+        // `Calendar` shadows `Foundation.Calendar` in every file that imports it,
+        // and this module is nothing but date arithmetic.
+        .target(name: "Agenda", dependencies: ["NotchCore", "NotchUI", "Support"]),
         .testTarget(name: "NotchCoreTests", dependencies: ["NotchCore"]),
         .testTarget(name: "MediaTests", dependencies: ["Media"]),
         .testTarget(name: "ClipboardTests", dependencies: ["Clipboard"]),
         .testTarget(name: "ShelfTests", dependencies: ["Shelf"]),
         .testTarget(name: "PomodoroTests", dependencies: ["Pomodoro"]),
-        .testTarget(name: "StatsTests", dependencies: ["Stats"])
+        .testTarget(name: "StatsTests", dependencies: ["Stats"]),
+        .testTarget(name: "ShortcutsTests", dependencies: ["Shortcuts"]),
+        .testTarget(name: "AgendaTests", dependencies: ["Agenda", "NotchUI"])
     ]
 )

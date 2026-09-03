@@ -1,11 +1,14 @@
+import Agenda
 import AppKit
 import Clipboard
 import Media
+import Mirror
 import NotchCore
 import NotchUI
 import NotchWindow
 import Pomodoro
 import Shelf
+import Shortcuts
 import Stats
 import Support
 
@@ -19,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboard: ClipboardModule?
     private var timer: TimerModule?
     private var stats: StatsModule?
+    private var mirror: MirrorModule?
+    private var shortcuts: ShortcutsModule?
+    private var agenda: AgendaModule?
     private var surfaces: NotchSurfaceManager?
     private var monitor: NotchEventMonitor?
     private var statusItem: NSStatusItem?
@@ -47,6 +53,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let stats = StatsModule()
         registry.register(stats)
         self.stats = stats
+
+        let mirror = MirrorModule()
+        registry.register(mirror)
+        self.mirror = mirror
+
+        let shortcuts = ShortcutsModule()
+        registry.register(shortcuts)
+        self.shortcuts = shortcuts
+
+        let agenda = AgendaModule()
+        registry.register(agenda)
+        self.agenda = agenda
 
         let surfaces = NotchSurfaceManager(registry: registry)
         self.surfaces = surfaces
