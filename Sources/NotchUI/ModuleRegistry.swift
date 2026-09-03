@@ -27,6 +27,25 @@ public final class ModuleRegistry {
         }
     }
 
+    /// Adopts a layout the user edited — a stored one at launch, or the settings
+    /// window's while running.
+    ///
+    /// Identifiers the registry does not know are kept exactly as given: the
+    /// layout is persisted, and a build that lacks a module must not discard the
+    /// position it holds in the build that has it. If the selected module has
+    /// just been switched off, selection falls to the first module still
+    /// showing, so the panel never opens on a tab that is no longer there.
+    public func apply(_ layout: ModuleLayout) {
+        self.layout = layout
+        // A selection that is still showing is kept, so reordering does not move
+        // the user off the tab they were looking at.
+        let stillShowing = selection.map { modules[$0] != nil && !layout.disabled.contains($0) } ?? false
+        if !stillShowing {
+            selection = visibleModules.first?.id
+        }
+        reconcileActivation()
+    }
+
     public var visibleModules: [any NotchModule] {
         layout.enabledOrder.compactMap { modules[$0] }
     }
