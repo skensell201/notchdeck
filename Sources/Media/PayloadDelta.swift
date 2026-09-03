@@ -21,6 +21,7 @@ public enum FieldUpdate<Value: Equatable & Sendable>: Equatable, Sendable {
 /// The `payload` object of one stream line.
 struct PayloadDelta: Decodable {
     var bundleIdentifier: FieldUpdate<String> = .unchanged
+    var processIdentifier: FieldUpdate<Int32> = .unchanged
     var title: FieldUpdate<String> = .unchanged
     var artist: FieldUpdate<String> = .unchanged
     var album: FieldUpdate<String> = .unchanged
@@ -34,7 +35,7 @@ struct PayloadDelta: Decodable {
     var artworkMimeType: FieldUpdate<String> = .unchanged
 
     private enum CodingKeys: String, CodingKey {
-        case bundleIdentifier, title, artist, album, contentItemIdentifier
+        case bundleIdentifier, processIdentifier, title, artist, album, contentItemIdentifier
         case playing, playbackRate, elapsedTimeMicros, durationMicros
         case timestampEpochMicros, artworkData, artworkMimeType
     }
@@ -42,24 +43,30 @@ struct PayloadDelta: Decodable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        func update<T: Decodable & Equatable & Sendable>(_ key: CodingKeys) throws -> FieldUpdate<T> {
+        // A key that is present but decodes as the wrong type (e.g. the adapter
+        // sending a string where a number is expected) is treated as `.unchanged`
+        // rather than failing the whole line — one malformed field must not
+        // discard the dependable ones alongside it.
+        func update<T: Decodable & Equatable & Sendable>(_ key: CodingKeys) -> FieldUpdate<T> {
             guard container.contains(key) else { return .unchanged }
-            if try container.decodeNil(forKey: key) { return .cleared }
-            return .set(try container.decode(T.self, forKey: key))
+            if (try? container.decodeNil(forKey: key)) == true { return .cleared }
+            guard let value = try? container.decode(T.self, forKey: key) else { return .unchanged }
+            return .set(value)
         }
 
-        bundleIdentifier = try update(.bundleIdentifier)
-        title = try update(.title)
-        artist = try update(.artist)
-        album = try update(.album)
-        contentItemIdentifier = try update(.contentItemIdentifier)
-        playing = try update(.playing)
-        playbackRate = try update(.playbackRate)
-        elapsedTimeMicros = try update(.elapsedTimeMicros)
-        durationMicros = try update(.durationMicros)
-        timestampEpochMicros = try update(.timestampEpochMicros)
-        artworkData = try update(.artworkData)
-        artworkMimeType = try update(.artworkMimeType)
+        bundleIdentifier = update(.bundleIdentifier)
+        processIdentifier = update(.processIdentifier)
+        title = update(.title)
+        artist = update(.artist)
+        album = update(.album)
+        contentItemIdentifier = update(.contentItemIdentifier)
+        playing = update(.playing)
+        playbackRate = update(.playbackRate)
+        elapsedTimeMicros = update(.elapsedTimeMicros)
+        durationMicros = update(.durationMicros)
+        timestampEpochMicros = update(.timestampEpochMicros)
+        artworkData = update(.artworkData)
+        artworkMimeType = update(.artworkMimeType)
     }
 }
 

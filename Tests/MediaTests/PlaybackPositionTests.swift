@@ -93,6 +93,15 @@ struct PlaybackPositionTests {
         #expect(PlaybackPosition.micros(of: state, atEpochMicros: start + 60_000_000) == 7_000_000)
     }
 
+    @Test("an extreme clock/rate combination clamps instead of trapping")
+    func extremeDriftDoesNotTrap() {
+        // A clock reset to 1970 combined with a large playbackRate used to produce
+        // a drift around -1.8e25, which overflowed `Int64(drift)` and crashed.
+        let state = track(rate: 1e10, elapsed: 0, timestamp: 1_788_357_423_000_000)
+
+        #expect(PlaybackPosition.micros(of: state, atEpochMicros: 0) == 0)
+    }
+
     @Test("progress is the fraction of the duration, and nil without one")
     func progress() {
         let state = track(rate: 0, elapsed: 25_000_000, timestamp: start)

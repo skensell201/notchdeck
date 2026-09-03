@@ -878,6 +878,7 @@ Run: `swift build` — expect a failure that `Sources/Media` has no sources yet;
 `Tests/MediaTests/NowPlayingDecoderTests.swift`:
 
 ```swift
+import Foundation
 import Testing
 @testable import Media
 
@@ -903,7 +904,8 @@ struct NowPlayingDecoderTests {
     func fullSnapshot() throws {
         var decoder = NowPlayingDecoder()
 
-        let state = try #require(decoder.consume(line: snapshot))
+        let consumed = decoder.consume(line: snapshot)
+        let state = try #require(consumed)
 
         #expect(state.bundleIdentifier == "com.google.Chrome")
         #expect(state.title == "Spike Test Track")
@@ -918,9 +920,10 @@ struct NowPlayingDecoderTests {
         var decoder = NowPlayingDecoder()
         _ = decoder.consume(line: snapshot)
 
-        let state = try #require(decoder.consume(
+        let consumed = decoder.consume(
             line: #"{"type":"data","diff":true,"payload":{"playing":false,"playbackRate":0}}"#
-        ))
+        )
+        let state = try #require(consumed)
 
         #expect(!state.isPlaying)
         #expect(state.playbackRate == 0)
@@ -933,9 +936,10 @@ struct NowPlayingDecoderTests {
         var decoder = NowPlayingDecoder()
         _ = decoder.consume(line: snapshot)
 
-        let state = try #require(decoder.consume(
+        let consumed = decoder.consume(
             line: #"{"type":"data","diff":true,"payload":{"artist":null}}"#
-        ))
+        )
+        let state = try #require(consumed)
 
         #expect(state.artist == nil)
         #expect(state.album == "MediaRemote Probe")
@@ -946,9 +950,10 @@ struct NowPlayingDecoderTests {
         var decoder = NowPlayingDecoder()
         _ = decoder.consume(line: snapshot)
 
-        let state = try #require(decoder.consume(
+        let consumed = decoder.consume(
             line: #"{"type":"data","diff":false,"payload":{"bundleIdentifier":"com.apple.Music","title":"Other","playing":true}}"#
-        ))
+        )
+        let state = try #require(consumed)
 
         #expect(state.title == "Other")
         #expect(state.artist == nil)
@@ -959,18 +964,42 @@ struct NowPlayingDecoderTests {
     func requiredFieldsAreRequired() {
         var decoder = NowPlayingDecoder()
 
+        // `title` and `playing` are the dependable fields; `bundleIdentifier` is
+        // not one of them — the adapter's own mandatory-key list is
+        // `processIdentifier`, `title`, `playing`, so a payload can have a
+        // bundle id and still be missing the one field that actually gates a
+        // snapshot.
         #expect(decoder.consume(
-            line: #"{"type":"data","diff":false,"payload":{"title":"No bundle id","playing":true}}"#
+            line: #"{"type":"data","diff":false,"payload":{"bundleIdentifier":"com.example","playing":true}}"#
         ) == nil)
+    }
+
+    @Test("a CLI player with no resolvable bundle id still yields a snapshot")
+    func noBundleIdentifierStillYieldsASnapshot() throws {
+        // mpv registers with Now Playing but never resolves to an
+        // `NSRunningApplication` with a bundle id, so the adapter never sends
+        // `bundleIdentifier` for it — only the mandatory keys.
+        var decoder = NowPlayingDecoder()
+
+        let consumed = decoder.consume(
+            line: #"{"type":"data","diff":false,"payload":{"processIdentifier":4242,"title":"track.mp3","playing":true}}"#
+        )
+        let state = try #require(consumed)
+
+        #expect(state.bundleIdentifier == nil)
+        #expect(state.processIdentifier == 4242)
+        #expect(state.title == "track.mp3")
+        #expect(state.isPlaying)
     }
 
     @Test("a sparse payload with only the required fields still yields a snapshot")
     func sparsePayload() throws {
         var decoder = NowPlayingDecoder()
 
-        let state = try #require(decoder.consume(
+        let consumed = decoder.consume(
             line: #"{"type":"data","diff":false,"payload":{"bundleIdentifier":"org.telegram","title":"Voice","playing":true}}"#
-        ))
+        )
+        let state = try #require(consumed)
 
         #expect(state.artist == nil)
         #expect(state.album == nil)
@@ -983,9 +1012,10 @@ struct NowPlayingDecoderTests {
         var decoder = NowPlayingDecoder()
         _ = decoder.consume(line: snapshot)
 
-        let state = try #require(decoder.consume(
+        let consumed = decoder.consume(
             line: #"{"type":"data","diff":true,"payload":{"artworkData":"QUJD","artworkMimeType":"image/jpeg"}}"#
-        ))
+        )
+        let state = try #require(consumed)
 
         #expect(state.artwork?.data == Data("ABC".utf8))
         #expect(state.artwork?.mimeType == "image/jpeg")
@@ -1016,6 +1046,19 @@ struct NowPlayingDecoderTests {
         #expect(decoder.snapshot?.title == "Spike Test Track")
     }
 
+    @Test("one malformed field does not discard the rest of the line")
+    func malformedFieldIsSkippedNotFatal() throws {
+        var decoder = NowPlayingDecoder()
+
+        let consumed = decoder.consume(
+            line: #"{"type":"data","diff":false,"payload":{"title":"Still Works","playing":true,"durationMicros":"not a number"}}"#
+        )
+        let state = try #require(consumed)
+
+        #expect(state.title == "Still Works")
+        #expect(state.durationMicros == nil)
+    }
+
     @Test("a blank line is ignored")
     func blankLineIsIgnored() throws {
         var decoder = NowPlayingDecoder()
@@ -1041,15 +1084,19 @@ import Foundation
 
 /// A now-playing snapshot.
 ///
-/// Only `bundleIdentifier`, `title` and `isPlaying` are dependable: the adapter's
-/// key set varies by player, and browsers in particular omit most of the rest.
+/// Only `title` and `isPlaying` are dependable: the adapter's own mandatory-key
+/// list is `processIdentifier`, `title`, `playing` — `bundleIdentifier` is present
+/// only when the now-playing process resolves to an `NSRunningApplication` with a
+/// bundle id, which a CLI player such as `mpv` never does even while it is
+/// genuinely playing.
 public struct NowPlaying: Equatable, Sendable {
     public struct Artwork: Equatable, Sendable {
         public var data: Data
         public var mimeType: String?
     }
 
-    public var bundleIdentifier: String
+    public var bundleIdentifier: String?
+    public var processIdentifier: Int32?
     public var title: String
     public var isPlaying: Bool
 
@@ -1095,6 +1142,7 @@ public enum FieldUpdate<Value: Equatable & Sendable>: Equatable, Sendable {
 /// The `payload` object of one stream line.
 struct PayloadDelta: Decodable {
     var bundleIdentifier: FieldUpdate<String> = .unchanged
+    var processIdentifier: FieldUpdate<Int32> = .unchanged
     var title: FieldUpdate<String> = .unchanged
     var artist: FieldUpdate<String> = .unchanged
     var album: FieldUpdate<String> = .unchanged
@@ -1108,7 +1156,7 @@ struct PayloadDelta: Decodable {
     var artworkMimeType: FieldUpdate<String> = .unchanged
 
     private enum CodingKeys: String, CodingKey {
-        case bundleIdentifier, title, artist, album, contentItemIdentifier
+        case bundleIdentifier, processIdentifier, title, artist, album, contentItemIdentifier
         case playing, playbackRate, elapsedTimeMicros, durationMicros
         case timestampEpochMicros, artworkData, artworkMimeType
     }
@@ -1116,24 +1164,30 @@ struct PayloadDelta: Decodable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        func update<T: Decodable & Equatable & Sendable>(_ key: CodingKeys) throws -> FieldUpdate<T> {
+        // A key that is present but decodes as the wrong type (e.g. the adapter
+        // sending a string where a number is expected) is treated as `.unchanged`
+        // rather than failing the whole line — one malformed field must not
+        // discard the dependable ones alongside it.
+        func update<T: Decodable & Equatable & Sendable>(_ key: CodingKeys) -> FieldUpdate<T> {
             guard container.contains(key) else { return .unchanged }
-            if try container.decodeNil(forKey: key) { return .cleared }
-            return .set(try container.decode(T.self, forKey: key))
+            if (try? container.decodeNil(forKey: key)) == true { return .cleared }
+            guard let value = try? container.decode(T.self, forKey: key) else { return .unchanged }
+            return .set(value)
         }
 
-        bundleIdentifier = try update(.bundleIdentifier)
-        title = try update(.title)
-        artist = try update(.artist)
-        album = try update(.album)
-        contentItemIdentifier = try update(.contentItemIdentifier)
-        playing = try update(.playing)
-        playbackRate = try update(.playbackRate)
-        elapsedTimeMicros = try update(.elapsedTimeMicros)
-        durationMicros = try update(.durationMicros)
-        timestampEpochMicros = try update(.timestampEpochMicros)
-        artworkData = try update(.artworkData)
-        artworkMimeType = try update(.artworkMimeType)
+        bundleIdentifier = update(.bundleIdentifier)
+        processIdentifier = update(.processIdentifier)
+        title = update(.title)
+        artist = update(.artist)
+        album = update(.album)
+        contentItemIdentifier = update(.contentItemIdentifier)
+        playing = update(.playing)
+        playbackRate = update(.playbackRate)
+        elapsedTimeMicros = update(.elapsedTimeMicros)
+        durationMicros = update(.durationMicros)
+        timestampEpochMicros = update(.timestampEpochMicros)
+        artworkData = update(.artworkData)
+        artworkMimeType = update(.artworkMimeType)
     }
 }
 
@@ -1154,10 +1208,13 @@ import Foundation
 ///
 /// `diff:false` payloads replace the state outright; `diff:true` payloads merge,
 /// with an explicit null clearing a field. A snapshot is produced only once the
-/// three dependable fields are all known.
+/// two dependable fields — `title` and `playing` — are both known. `bundleIdentifier`
+/// is not required: the adapter itself only sends it when the now-playing process
+/// resolves to an `NSRunningApplication` with a bundle id.
 public struct NowPlayingDecoder {
     private struct Partial: Equatable {
         var bundleIdentifier: String?
+        var processIdentifier: Int32?
         var title: String?
         var playing: Bool?
         var artist: String?
@@ -1167,7 +1224,9 @@ public struct NowPlayingDecoder {
         var elapsedTimeMicros: Int64?
         var durationMicros: Int64?
         var timestampEpochMicros: Int64?
-        var artworkBase64: String?
+        /// Decoded once, when `artworkData` arrives as `.set` — not re-decoded on
+        /// every subsequent line, most of which don't touch artwork at all.
+        var artworkData: Data?
         var artworkMimeType: String?
     }
 
@@ -1205,6 +1264,7 @@ public struct NowPlayingDecoder {
 
     private mutating func apply(_ delta: PayloadDelta) {
         partial.bundleIdentifier = delta.bundleIdentifier.applied(to: partial.bundleIdentifier)
+        partial.processIdentifier = delta.processIdentifier.applied(to: partial.processIdentifier)
         partial.title = delta.title.applied(to: partial.title)
         partial.playing = delta.playing.applied(to: partial.playing)
         partial.artist = delta.artist.applied(to: partial.artist)
@@ -1214,24 +1274,34 @@ public struct NowPlayingDecoder {
         partial.elapsedTimeMicros = delta.elapsedTimeMicros.applied(to: partial.elapsedTimeMicros)
         partial.durationMicros = delta.durationMicros.applied(to: partial.durationMicros)
         partial.timestampEpochMicros = delta.timestampEpochMicros.applied(to: partial.timestampEpochMicros)
-        partial.artworkBase64 = delta.artworkData.applied(to: partial.artworkBase64)
         partial.artworkMimeType = delta.artworkMimeType.applied(to: partial.artworkMimeType)
+
+        switch delta.artworkData {
+        case .unchanged:
+            break
+        case .cleared:
+            partial.artworkData = nil
+        case .set(let base64):
+            // Base64-decode once, here, rather than on every `project()` call —
+            // most lines are single-key diffs that never touch artwork.
+            partial.artworkData = Data(base64Encoded: base64)
+        }
     }
 
     private func project() -> NowPlaying? {
-        guard let bundleIdentifier = partial.bundleIdentifier,
-              let title = partial.title,
+        guard let title = partial.title,
               let playing = partial.playing else {
             return nil
         }
 
         var artwork: NowPlaying.Artwork?
-        if let base64 = partial.artworkBase64, let data = Data(base64Encoded: base64) {
+        if let data = partial.artworkData {
             artwork = NowPlaying.Artwork(data: data, mimeType: partial.artworkMimeType)
         }
 
         return NowPlaying(
-            bundleIdentifier: bundleIdentifier,
+            bundleIdentifier: partial.bundleIdentifier,
+            processIdentifier: partial.processIdentifier,
             title: title,
             isPlaying: playing,
             artist: partial.artist,
@@ -1250,7 +1320,7 @@ public struct NowPlayingDecoder {
 - [ ] **Step 7: Run the tests**
 
 Run: `swift test --filter NowPlayingDecoderTests`
-Expected: 12 tests pass. Full suite still green.
+Expected: 15 tests pass. Full suite still green.
 
 - [ ] **Step 8: Commit**
 
@@ -1369,6 +1439,15 @@ struct PlaybackPositionTests {
         #expect(PlaybackPosition.micros(of: state, atEpochMicros: start + 60_000_000) == 7_000_000)
     }
 
+    @Test("an extreme clock/rate combination clamps instead of trapping")
+    func extremeDriftDoesNotTrap() {
+        // A clock reset to 1970 combined with a large playbackRate used to produce
+        // a drift around -1.8e25, which overflowed `Int64(drift)` and crashed.
+        let state = track(rate: 1e10, elapsed: 0, timestamp: 1_788_357_423_000_000)
+
+        #expect(PlaybackPosition.micros(of: state, atEpochMicros: 0) == 0)
+    }
+
     @Test("progress is the fraction of the duration, and nil without one")
     func progress() {
         let state = track(rate: 0, elapsed: 25_000_000, timestamp: start)
@@ -1403,13 +1482,22 @@ public enum PlaybackPosition {
         guard let elapsed = state.elapsedTimeMicros else { return nil }
         guard let timestamp = state.timestampEpochMicros else { return elapsed }
 
-        let drift = Double(now - timestamp) * state.playbackRate
-        var position = elapsed + Int64(drift)
-
-        if let duration = state.durationMicros {
-            position = min(position, duration)
+        // Compute entirely in `Double`: `now - timestamp` can overflow `Int64` for
+        // extreme inputs (an adapter-reported clock reset to 1970, say), and a
+        // large `playbackRate` can blow the drift far past what `Int64` can hold —
+        // `Int64(drift)` traps in that case. Everything is clamped in floating
+        // point before ever converting back to `Int64`.
+        let drift = (Double(now) - Double(timestamp)) * state.playbackRate
+        guard drift.isFinite else {
+            return drift > 0 ? (state.durationMicros ?? Int64.max) : 0
         }
-        return max(position, 0)
+
+        // `Double(Int64.max)` itself rounds up to 2^63, one past what `Int64` can
+        // hold, so converting it back would trap; `.nextDown` is the nearest
+        // representable value that safely round-trips.
+        let upperBound = state.durationMicros.map(Double.init) ?? Double(Int64.max).nextDown
+        let position = min(max(Double(elapsed) + drift, 0), upperBound)
+        return Int64(position)
     }
 
     public static func progress(of state: NowPlaying, atEpochMicros now: Int64) -> Double? {
@@ -1425,7 +1513,7 @@ public enum PlaybackPosition {
 - [ ] **Step 4: Run the tests**
 
 Run: `swift test --filter PlaybackPositionTests`
-Expected: 10 tests pass.
+Expected: 11 tests pass.
 
 - [ ] **Step 5: Commit**
 
@@ -1565,6 +1653,7 @@ Expected: FAIL — `cannot find 'MediaCommands' in scope`.
 
 ```swift
 import AppKit
+import Support
 
 public enum TransportAction: Equatable, Sendable {
     case play, pause, toggle, next, previous
@@ -1632,15 +1721,19 @@ public struct MediaCommands: Sendable {
 /// failure here degrades transport rather than breaking the module. Verify the
 /// behaviour by hand and record the result in the README checklist.
 public struct SystemMediaKeyPoster: MediaKeyPoster {
+    private static let logger = Log.make("media.keys")
+
     public init() {}
 
     public func post(keyCode: Int32) {
         for isDown in [true, false] {
-            let flags = NSEvent.ModifierFlags(rawValue: UInt(isDown ? 0xA00 : 0xB00))
+            // The media-key path does not consult `modifierFlags` at all — the
+            // down/up state lives entirely in `data1`'s low byte below — so no
+            // raw value here does anything; pass none.
             guard let event = NSEvent.otherEvent(
                 with: .systemDefined,
                 location: .zero,
-                modifierFlags: flags,
+                modifierFlags: [],
                 timestamp: 0,
                 windowNumber: 0,
                 context: nil,
@@ -1648,7 +1741,11 @@ public struct SystemMediaKeyPoster: MediaKeyPoster {
                 data1: Int((keyCode << 16)) | Int(isDown ? 0xA00 : 0xB00),
                 data2: -1
             ) else { continue }
-            event.cgEvent?.post(tap: .cghidEventTap)
+            guard let cgEvent = event.cgEvent else {
+                Self.logger.error("could not create a CGEvent for media key \(keyCode, privacy: .public)")
+                continue
+            }
+            cgEvent.post(tap: .cghidEventTap)
         }
     }
 }
@@ -1736,10 +1833,14 @@ import Support
 public struct AdapterPaths: Sendable {
     public let script: URL
     public let framework: URL
+    /// Absolute path to the bundled `MediaRemoteAdapterTestClient`, when present.
+    /// Only the `test` probe uses it — see `arguments(_:includeTestClient:)`.
+    public let testClient: URL?
 
-    public init(script: URL, framework: URL) {
+    public init(script: URL, framework: URL, testClient: URL? = nil) {
         self.script = script
         self.framework = framework
+        self.testClient = testClient
     }
 
     public static func inMainBundle(_ bundle: Bundle = .main) -> AdapterPaths? {
@@ -1751,11 +1852,26 @@ public struct AdapterPaths: Sendable {
         guard FileManager.default.fileExists(atPath: framework.path(percentEncoded: false)) else {
             return nil
         }
-        return AdapterPaths(script: script, framework: framework)
+        let testClientCandidate = bundle.bundleURL.appending(path: "Contents/MacOS/MediaRemoteAdapterTestClient")
+        let testClient = FileManager.default.fileExists(atPath: testClientCandidate.path(percentEncoded: false))
+            ? testClientCandidate
+            : nil
+        return AdapterPaths(script: script, framework: framework, testClient: testClient)
     }
 
-    func arguments(_ command: [String]) -> [String] {
-        [script.path(percentEncoded: false), framework.path(percentEncoded: false)] + command
+    /// Builds the perl invocation's arguments. The vendored script's usage is
+    /// `FRAMEWORK_PATH [TEST_CLIENT_PATH] FUNCTION [PARAMS|OPTIONS...]` — the test
+    /// client path is recognised only because it contains a "/", so it must sit
+    /// between the framework path and the command, never among the command's own
+    /// arguments. Only `probe()` passes `includeTestClient: true`: without the
+    /// client, `test` silently degrades to a plain `get` and proves nothing.
+    func arguments(_ command: [String], includeTestClient: Bool = false) -> [String] {
+        var arguments = [script.path(percentEncoded: false), framework.path(percentEncoded: false)]
+        if includeTestClient, let testClient {
+            arguments.append(testClient.path(percentEncoded: false))
+        }
+        arguments += command
+        return arguments
     }
 }
 
@@ -1778,9 +1894,44 @@ public protocol AdapterStreamSource: Sendable {
     func stop()
 }
 
+/// Accumulates raw bytes from the adapter's stdout pipe and splits them into
+/// lines. Strict concurrency rejects a plain `var` captured by the pipe's
+/// `readabilityHandler` closure (it runs on a dispatch queue, not in-line), so the
+/// buffer is boxed here and guarded by the same lock `PerlAdapterStream` already
+/// uses for `process`, rather than weakening the stream's Sendable conformance.
+private final class LineBuffer: @unchecked Sendable {
+    private let lock: NSLock
+    private var data = Data()
+
+    init(lock: NSLock) {
+        self.lock = lock
+    }
+
+    /// Appends a chunk and returns the complete lines it produced, if any.
+    func consuming(_ chunk: Data) -> [String] {
+        lock.withLock {
+            data.append(chunk)
+            var lines: [String] = []
+            while let newline = data.firstIndex(of: UInt8(ascii: "\n")) {
+                let line = data[data.startIndex..<newline]
+                data.removeSubrange(data.startIndex...newline)
+                if let text = String(data: line, encoding: .utf8) {
+                    lines.append(text)
+                }
+            }
+            return lines
+        }
+    }
+}
+
 /// Spawns `/usr/bin/perl` on the vendored adapter and yields one line per JSON
-/// object. `--micros` gives integer epoch microseconds instead of an ISO date, and
-/// `--debounce` coalesces the two-line bursts a single state change produces.
+/// object. `--micros` gives integer epoch microseconds instead of an ISO date.
+/// `--debounce` does *not* coalesce the two-line bursts a single state change
+/// produces: in the adapter's `stream.m`, only the `NowPlayingInfoDidChange`
+/// observer is debounced — `IsPlayingDidChange` still dispatches immediately — so
+/// the flag stretches such a burst to at least the debounce delay rather than
+/// merging it into one line. Coalescing the burst, if it is ever needed, is this
+/// stream's consumer's job.
 public final class PerlAdapterStream: AdapterStreamSource, @unchecked Sendable {
     private let paths: AdapterPaths
     private let logger = Log.make("media.adapter")
@@ -1801,17 +1952,20 @@ public final class PerlAdapterStream: AdapterStreamSource, @unchecked Sendable {
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
 
-            var buffer = Data()
+            let buffer = LineBuffer(lock: lock)
             pipe.fileHandleForReading.readabilityHandler = { handle in
                 let chunk = handle.availableData
-                guard !chunk.isEmpty else { return }
-                buffer.append(chunk)
-                while let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
-                    let line = buffer[buffer.startIndex..<newline]
-                    buffer.removeSubrange(buffer.startIndex...newline)
-                    if let text = String(data: line, encoding: .utf8) {
-                        continuation.yield(text)
-                    }
+                guard !chunk.isEmpty else {
+                    // An empty chunk at this handler means EOF on the read end. If
+                    // the handler is left in place, a persistent EOF (e.g. an
+                    // unlaunched process whose Pipe gets released) fires it
+                    // continuously — measured at over 500,000 calls/s, pinning a
+                    // core. Clear it so EOF is handled once, not spun on.
+                    handle.readabilityHandler = nil
+                    return
+                }
+                for text in buffer.consuming(chunk) {
+                    continuation.yield(text)
                 }
             }
 
@@ -1821,20 +1975,33 @@ public final class PerlAdapterStream: AdapterStreamSource, @unchecked Sendable {
                 continuation.finish()
             }
 
-            continuation.onTermination = { [weak self] _ in
-                self?.stop()
-            }
-
             do {
                 try process.run()
                 lock.withLock { self.process = process }
+                // Capture `process` directly rather than going through `self`: if
+                // this `PerlAdapterStream` is released while its AsyncStream is
+                // still being consumed, cancellation must still reach the specific
+                // subprocess this call started, not whatever `self.process`
+                // happens to hold by then (a later `lines()` call would have
+                // overwritten it). `terminate()` on a process that has already
+                // exited — e.g. via `terminationHandler` above — is a no-op;
+                // verified this doesn't throw. It does throw, however, on a
+                // process that was never launched, which is why this is set only
+                // after `process.run()` succeeds.
+                continuation.onTermination = { _ in
+                    process.terminate()
+                }
             } catch {
+                pipe.fileHandleForReading.readabilityHandler = nil
                 logger.error("could not start the adapter: \(error.localizedDescription, privacy: .public)")
                 continuation.finish()
             }
         }
     }
 
+    /// Terminates the most recently started process, if any. `lines()`'s own
+    /// `continuation.onTermination` is the reliable teardown path for a given
+    /// stream — this is a convenience for callers holding onto the stream object.
     public func stop() {
         let running = lock.withLock { () -> Process? in
             defer { process = nil }
@@ -1853,10 +2020,22 @@ public struct PerlAdapterCommandRunner: AdapterCommandRunner {
     }
 
     public func run(arguments: [String]) async -> Bool {
+        await run(arguments: arguments, includeTestClient: false)
+    }
+
+    /// Runs the adapter's `test` command, which exits 0 when MediaRemote access
+    /// genuinely works. Used once at launch to decide whether to degrade. Passes
+    /// the bundled test client — without it, `test` degrades to a plain `get` and
+    /// proves nothing.
+    public func probe() async -> Bool {
+        await run(arguments: ["test"], includeTestClient: true)
+    }
+
+    private func run(arguments: [String], includeTestClient: Bool) async -> Bool {
         await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = URL(filePath: "/usr/bin/perl")
-            process.arguments = paths.arguments(arguments)
+            process.arguments = paths.arguments(arguments, includeTestClient: includeTestClient)
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             process.terminationHandler = { finished in
@@ -1868,12 +2047,6 @@ public struct PerlAdapterCommandRunner: AdapterCommandRunner {
                 continuation.resume(returning: false)
             }
         }
-    }
-
-    /// Runs the adapter's `test` command, which exits 0 when MediaRemote access
-    /// genuinely works. Used once at launch to decide whether to degrade.
-    public func probe() async -> Bool {
-        await run(arguments: ["test"])
     }
 }
 ```
@@ -2034,6 +2207,13 @@ public final class MediaModule: NotchModule {
                 return
             }
 
+            // A crash-looping adapter always prints its priming `{}` line first,
+            // so "did this attempt see any line" resets the backoff on every
+            // single crash — the loop never actually backs off. What matters is
+            // whether the stream *stayed up*: only a connection that survived for
+            // a while indicates the adapter is genuinely healthy again.
+            let minimumHealthyUptime: Duration = .seconds(5)
+            let clock = ContinuousClock()
             var attempt = 0
             while !Task.isCancelled {
                 let delay = AdapterBackoff.delay(forAttempt: attempt)
@@ -2041,12 +2221,11 @@ public final class MediaModule: NotchModule {
                     try? await Task.sleep(for: delay)
                 }
                 let source = PerlAdapterStream(paths: paths)
-                var sawAnything = false
+                let started = clock.now
                 for await line in source.lines() {
-                    sawAnything = true
                     self.consume(line)
                 }
-                attempt = sawAnything ? 0 : attempt + 1
+                attempt = clock.now - started >= minimumHealthyUptime ? 0 : attempt + 1
             }
         }
     }

@@ -2,15 +2,19 @@ import Foundation
 
 /// A now-playing snapshot.
 ///
-/// Only `bundleIdentifier`, `title` and `isPlaying` are dependable: the adapter's
-/// key set varies by player, and browsers in particular omit most of the rest.
+/// Only `title` and `isPlaying` are dependable: the adapter's own mandatory-key
+/// list is `processIdentifier`, `title`, `playing` — `bundleIdentifier` is present
+/// only when the now-playing process resolves to an `NSRunningApplication` with a
+/// bundle id, which a CLI player such as `mpv` never does even while it is
+/// genuinely playing.
 public struct NowPlaying: Equatable, Sendable {
     public struct Artwork: Equatable, Sendable {
         public var data: Data
         public var mimeType: String?
     }
 
-    public var bundleIdentifier: String
+    public var bundleIdentifier: String?
+    public var processIdentifier: Int32?
     public var title: String
     public var isPlaying: Bool
 

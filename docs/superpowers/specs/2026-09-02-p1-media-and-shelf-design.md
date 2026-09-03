@@ -80,7 +80,7 @@ A throwaway spike built `ungive/mediaremote-adapter` v0.7.6 (BSD 3-Clause, commi
 | One logical change arrives as two lines 10–20 ms apart — the `playing` flag, then rate/elapsed/timestamp. | Run the stream with `--debounce=50`, and coalesce anyway. |
 | Zero output when nothing changes — no heartbeat, no keepalive, 0 % CPU. | Liveness must be our own concern; silence is indistinguishable from a wedged process. |
 | There is no "stopped" event. After playback ends the last track persists indefinitely with `playing:false` and a frozen position. | We need our own staleness policy. |
-| The key set is sparse and player-dependent. Only `bundleIdentifier`, `playing` and `title` are dependable; the whole output can be the literal `null` with exit 0. | Every other field is optional in the model. `null` is a valid, expected snapshot meaning "nothing known". |
+| The key set is sparse and player-dependent. Only `title` and `playing` are dependable — the adapter's own mandatory-key list (`keys.m`) is `processIdentifier`, `title`, `playing`. `bundleIdentifier` is absent whenever the now-playing process doesn't resolve to an `NSRunningApplication` with a bundle id, which happens for CLI players such as `mpv` even while genuinely playing; the whole output can also be the literal `null` with exit 0. | Every other field, `bundleIdentifier` included, is optional in the model. `null` is a valid, expected snapshot meaning "nothing known". |
 | `--micros` replaces the ISO-8601 timestamp with integer epoch microseconds. | Use it. Parsing an integer cannot fail the way a date format can. |
 | Commands are one-shot processes, ~18 ms: `send <id>` (0 play, 1 pause, 2 toggle, 4 next, 5 previous) and `seek <microseconds>`. | No long-lived command channel; spawn per command. |
 | `test` exits 0 on success and prints nothing. | Use it as a capability probe at launch, and degrade deliberately when it fails. |
@@ -95,7 +95,7 @@ The `MediaRemoteAdapterTestClient` is bundled too, because it is what makes `tes
 
 - `MediaAdapterProcess` — spawns and supervises the `stream` subprocess, exposes an `AsyncStream` of raw payload lines, restarts with backoff on exit. Behind a protocol so tests never spawn anything.
 - `NowPlayingDecoder` — pure. Merges the diff protocol into a running `NowPlaying` snapshot: full snapshots replace, diffs merge, explicit nulls remove, the priming empty payload is ignored, and a literal `null` document clears everything. This is where the sparse schema is absorbed, and it is the most heavily tested piece in the phase.
-- `NowPlaying` — the model. Only `bundleIdentifier`, `isPlaying` and `title` are non-optional.
+- `NowPlaying` — the model. Only `isPlaying` and `title` are non-optional; `bundleIdentifier` is absent for players without a resolvable bundle.
 - `PlaybackPosition` — pure. `position(at:)` implements the interpolation rule, clamped to `duration` when known.
 - `MediaCommands` — sends `send`/`seek` through the adapter, falling back to HID media keys when the adapter is unavailable.
 - `MediaModule` — the `NotchModule`, owning the above and publishing state to views.

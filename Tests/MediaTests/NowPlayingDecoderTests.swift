@@ -84,9 +84,32 @@ struct NowPlayingDecoderTests {
     func requiredFieldsAreRequired() {
         var decoder = NowPlayingDecoder()
 
+        // `title` and `playing` are the dependable fields; `bundleIdentifier` is
+        // not one of them — the adapter's own mandatory-key list is
+        // `processIdentifier`, `title`, `playing`, so a payload can have a
+        // bundle id and still be missing the one field that actually gates a
+        // snapshot.
         #expect(decoder.consume(
-            line: #"{"type":"data","diff":false,"payload":{"title":"No bundle id","playing":true}}"#
+            line: #"{"type":"data","diff":false,"payload":{"bundleIdentifier":"com.example","playing":true}}"#
         ) == nil)
+    }
+
+    @Test("a CLI player with no resolvable bundle id still yields a snapshot")
+    func noBundleIdentifierStillYieldsASnapshot() throws {
+        // mpv registers with Now Playing but never resolves to an
+        // `NSRunningApplication` with a bundle id, so the adapter never sends
+        // `bundleIdentifier` for it — only the mandatory keys.
+        var decoder = NowPlayingDecoder()
+
+        let consumed = decoder.consume(
+            line: #"{"type":"data","diff":false,"payload":{"processIdentifier":4242,"title":"track.mp3","playing":true}}"#
+        )
+        let state = try #require(consumed)
+
+        #expect(state.bundleIdentifier == nil)
+        #expect(state.processIdentifier == 4242)
+        #expect(state.title == "track.mp3")
+        #expect(state.isPlaying)
     }
 
     @Test("a sparse payload with only the required fields still yields a snapshot")
@@ -141,6 +164,19 @@ struct NowPlayingDecoderTests {
 
         #expect(decoder.consume(line: "{not json") == nil)
         #expect(decoder.snapshot?.title == "Spike Test Track")
+    }
+
+    @Test("one malformed field does not discard the rest of the line")
+    func malformedFieldIsSkippedNotFatal() throws {
+        var decoder = NowPlayingDecoder()
+
+        let consumed = decoder.consume(
+            line: #"{"type":"data","diff":false,"payload":{"title":"Still Works","playing":true,"durationMicros":"not a number"}}"#
+        )
+        let state = try #require(consumed)
+
+        #expect(state.title == "Still Works")
+        #expect(state.durationMicros == nil)
     }
 
     @Test("a blank line is ignored")

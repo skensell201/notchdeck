@@ -1,4 +1,5 @@
 import AppKit
+import Support
 
 public enum TransportAction: Equatable, Sendable {
     case play, pause, toggle, next, previous
@@ -66,15 +67,19 @@ public struct MediaCommands: Sendable {
 /// failure here degrades transport rather than breaking the module. Verify the
 /// behaviour by hand and record the result in the README checklist.
 public struct SystemMediaKeyPoster: MediaKeyPoster {
+    private static let logger = Log.make("media.keys")
+
     public init() {}
 
     public func post(keyCode: Int32) {
         for isDown in [true, false] {
-            let flags = NSEvent.ModifierFlags(rawValue: UInt(isDown ? 0xA00 : 0xB00))
+            // The media-key path does not consult `modifierFlags` at all — the
+            // down/up state lives entirely in `data1`'s low byte below — so no
+            // raw value here does anything; pass none.
             guard let event = NSEvent.otherEvent(
                 with: .systemDefined,
                 location: .zero,
-                modifierFlags: flags,
+                modifierFlags: [],
                 timestamp: 0,
                 windowNumber: 0,
                 context: nil,
@@ -82,7 +87,11 @@ public struct SystemMediaKeyPoster: MediaKeyPoster {
                 data1: Int((keyCode << 16)) | Int(isDown ? 0xA00 : 0xB00),
                 data2: -1
             ) else { continue }
-            event.cgEvent?.post(tap: .cghidEventTap)
+            guard let cgEvent = event.cgEvent else {
+                Self.logger.error("could not create a CGEvent for media key \(keyCode, privacy: .public)")
+                continue
+            }
+            cgEvent.post(tap: .cghidEventTap)
         }
     }
 }
