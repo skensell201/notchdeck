@@ -26,6 +26,8 @@ public final class MediaModule: NotchModule {
     public private(set) var positionTick: Int64 = 0
     /// Set while the user drags the scrubber, so incoming updates do not fight them.
     public var scrubbingProgress: Double?
+    private var awaitingSeekEcho = false
+    private var seekEchoTimeout: Task<Void, Never>?
     /// True once a paused track has sat untouched for `peekStaleness`. Observable
     /// so the shell can react to it: the flag flips from a scheduled task rather
     /// than being recomputed from timestamps, which nothing would re-read.
@@ -59,11 +61,18 @@ public final class MediaModule: NotchModule {
         // Both halves are independently idempotent: the stream starts once and
         // outlives the panel, while the tick is panel-scoped and restarts every
         // time the notch opens.
-        if streamTask == nil {
-            startStream()
-        }
+        startStreaming()
         if tickTask == nil {
             startTicking()
+        }
+    }
+
+    /// Starts only the now-playing stream, without the panel-scoped redraw tick.
+    /// The app calls this at launch so the collapsed peek works before the panel
+    /// is ever opened; `activate()` is what the registry calls when it is.
+    public func startStreaming() {
+        if streamTask == nil {
+            startStream()
         }
     }
 
@@ -96,6 +105,7 @@ public final class MediaModule: NotchModule {
         streamTask?.cancel()
         tickTask?.cancel()
         stalenessTask?.cancel()
+        seekEchoTimeout?.cancel()
         currentSource?.stop()
         streamTask = nil
         tickTask = nil
@@ -110,15 +120,40 @@ public final class MediaModule: NotchModule {
     }
 
     public func seek(toProgress progress: Double) {
-        guard let duration = state?.durationMicros else { return }
-        let target = Int64(Double(duration) * min(max(progress, 0), 1))
+        let clamped = min(max(progress, 0), 1)
+        guard let duration = state?.durationMicros else {
+            // Nothing to seek in; drop the drag rather than leaving the bar
+            // frozen at the drag position for every later track.
+            scrubbingProgress = nil
+            return
+        }
+        let target = Int64(Double(duration) * clamped)
+
+        // Hold the bar at the target until the adapter reports the new position,
+        // otherwise it snaps back to the pre-seek position for the round trip.
+        scrubbingProgress = clamped
+        awaitingSeekEcho = true
+        seekEchoTimeout?.cancel()
+
         Task {
             let succeeded = await commands.seek(toMicros: target)
             if !succeeded {
                 logger.notice("seek failed; the adapter is unavailable")
+                releaseScrubber()
             }
-            scrubbingProgress = nil
         }
+        seekEchoTimeout = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            releaseScrubber()
+        }
+    }
+
+    private func releaseScrubber() {
+        awaitingSeekEcho = false
+        seekEchoTimeout?.cancel()
+        seekEchoTimeout = nil
+        scrubbingProgress = nil
     }
 
     public var progress: Double? {
@@ -170,6 +205,7 @@ public final class MediaModule: NotchModule {
                 let delay = AdapterBackoff.delay(forAttempt: attempt)
                 if delay > .zero {
                     try? await Task.sleep(for: delay)
+                    guard !Task.isCancelled else { break }
                 }
                 let source = PerlAdapterStream(paths: paths)
                 self.currentSource = source
@@ -184,14 +220,23 @@ public final class MediaModule: NotchModule {
     }
 
     private func consume(_ line: String) {
+        let previous = state
         if let updated = decoder.consume(line: line) {
             state = updated
         } else if decoder.snapshot == nil {
             // An empty full payload is the adapter's "nothing playing" signal.
             state = nil
         }
+        if awaitingSeekEcho, positionChanged(from: previous, to: state) {
+            releaseScrubber()
+        }
         refreshArtwork()
         rescheduleStaleness()
+    }
+
+    private func positionChanged(from previous: NowPlaying?, to current: NowPlaying?) -> Bool {
+        previous?.elapsedTimeMicros != current?.elapsedTimeMicros
+            || previous?.timestampEpochMicros != current?.timestampEpochMicros
     }
 
     /// Drives `isStale` without polling: a playing track is never stale, and a
@@ -201,7 +246,7 @@ public final class MediaModule: NotchModule {
     private func rescheduleStaleness() {
         stalenessTask?.cancel()
         stalenessTask = nil
-        guard let state, state.playbackRate == 0 else {
+        guard let state, state.playbackRate == 0, !state.isPlaying else {
             isStale = false
             return
         }

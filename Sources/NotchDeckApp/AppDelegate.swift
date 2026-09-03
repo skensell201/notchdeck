@@ -46,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // The stream must be up before the panel is ever opened, or the collapsed
         // peek has nothing to show.
-        media.activate()
+        media.startStreaming()
 
         installStatusItem()
         logger.notice("NotchDeck started with \(surfaces.allSurfaces.count, privacy: .public) surfaces")

@@ -40,7 +40,15 @@ private struct Visualiser: View {
                     .frame(width: 3, height: height(index))
             }
         }
-        .animation(.easeInOut(duration: 0.45).repeatForever(autoreverses: true), value: phase)
+        // The repeating curve must apply only while playing: applied to the
+        // 1 → 0 change as well, it would keep the bars bouncing between the
+        // two heights forever instead of settling flat on pause.
+        .animation(
+            isAnimating
+                ? .easeInOut(duration: 0.45).repeatForever(autoreverses: true)
+                : .easeInOut(duration: 0.2),
+            value: phase
+        )
         .onAppear { phase = isAnimating ? 1 : 0 }
         .onChange(of: isAnimating) { _, playing in phase = playing ? 1 : 0 }
     }
