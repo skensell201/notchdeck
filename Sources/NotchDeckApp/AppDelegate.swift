@@ -42,8 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         surfaces.onDragExited = { [weak self] in
             self?.controller.send(.dragExited)
         }
-        surfaces.onDrop = { urls in
-            shelf.accept(urls)
+        surfaces.onDragMoved = { point in
+            shelf.dragMoved(to: point)
+        }
+        surfaces.onDrop = { urls, point in
+            shelf.accept(urls, at: point)
         }
 
         controller.onStateChange = { state in

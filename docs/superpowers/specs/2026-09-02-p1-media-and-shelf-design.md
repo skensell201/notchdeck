@@ -148,7 +148,7 @@ Persistence is a JSON document in Application Support, written atomically. Bookm
 
 ### 4.3 Drag out
 
-Items drag back out to Finder and other applications using `NSFilePromiseProvider`, so a drag that ends in a file-consuming target gets a real file, and one that ends nowhere costs nothing.
+Items drag back out to Finder and other applications by handing over the file's real URL in an `NSItemProvider`. A file promise would only add a copy step: the file already exists, so the destination can take it directly.
 
 ### 4.4 AirDrop
 

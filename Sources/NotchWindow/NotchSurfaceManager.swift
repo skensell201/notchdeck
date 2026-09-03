@@ -17,7 +17,8 @@ public final class NotchSurfaceManager {
     /// forwards to these at call time, so they may be assigned after `init`.
     public var onDragEntered: (() -> Void)?
     public var onDragExited: (() -> Void)?
-    public var onDrop: (([URL]) -> Bool)?
+    public var onDragMoved: ((CGPoint) -> Void)?
+    public var onDrop: (([URL], CGPoint) -> Bool)?
 
     public init(registry: ModuleRegistry, syntheticSize: CGSize = CGSize(width: 220, height: 32)) {
         self.registry = registry
@@ -73,7 +74,8 @@ public final class NotchSurfaceManager {
                 let surface = NotchSurface(screen: screen, displayID: id, registry: registry, syntheticSize: syntheticSize)
                 surface.onDragEntered = { [weak self] in self?.onDragEntered?() }
                 surface.onDragExited = { [weak self] in self?.onDragExited?() }
-                surface.onDrop = { [weak self] urls in self?.onDrop?(urls) ?? false }
+                surface.onDragMoved = { [weak self] point in self?.onDragMoved?(point) }
+                surface.onDrop = { [weak self] urls, point in self?.onDrop?(urls, point) ?? false }
                 surfaces[id] = surface
             }
         }

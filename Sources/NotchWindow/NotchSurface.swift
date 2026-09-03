@@ -17,7 +17,8 @@ public final class NotchSurface {
     /// The drop location is deliberately not forwarded yet.
     public var onDragEntered: (() -> Void)?
     public var onDragExited: (() -> Void)?
-    public var onDrop: (([URL]) -> Bool)?
+    public var onDragMoved: ((CGPoint) -> Void)?
+    public var onDrop: (([URL], CGPoint) -> Bool)?
 
     public init(screen: NSScreen, displayID: CGDirectDisplayID, registry: ModuleRegistry, syntheticSize: CGSize) {
         self.displayID = displayID
@@ -49,7 +50,8 @@ public final class NotchSurface {
         // initialiser has returned, so the container must read them at call time.
         container.onDragEntered = { [weak self] in self?.onDragEntered?() }
         container.onDragExited = { [weak self] in self?.onDragExited?() }
-        container.onDrop = { [weak self] urls, _ in self?.onDrop?(urls) ?? false }
+        container.onDragMoved = { [weak self] point in self?.onDragMoved?(point) }
+        container.onDrop = { [weak self] urls, point in self?.onDrop?(urls, point) ?? false }
 
         let hosting = NSHostingView(rootView: NotchShellView(model: model))
         // Without this, assigning the hosting view as a borderless panel's content

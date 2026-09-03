@@ -16,6 +16,8 @@ public final class NotchContainerView: NSView {
     /// notch needs to open itself.
     public var onDragEntered: (() -> Void)?
     public var onDragExited: (() -> Void)?
+    /// Where the drag currently is, in this view's (flipped) coordinate space.
+    public var onDragMoved: ((CGPoint) -> Void)?
     /// Receives the dropped file URLs and the drop location in this view's
     /// (flipped) coordinate space. Returns whether the drop was accepted.
     public var onDrop: (([URL], CGPoint) -> Bool)?
@@ -50,7 +52,8 @@ public final class NotchContainerView: NSView {
     }
 
     public override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        .copy
+        onDragMoved?(convert(sender.draggingLocation, from: nil))
+        return .copy
     }
 
     public override func draggingExited(_ sender: (any NSDraggingInfo)?) {
