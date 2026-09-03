@@ -275,6 +275,11 @@ public protocol NotchModule: AnyObject {
     /// A compact representation for the collapsed notch, or nil when the module
     /// has nothing live to show.
     func peekView() -> AnyView?
+
+    /// True when `peekView()` would return content. Must be cheap and must be
+    /// backed by observable state, because the shell reads it on every layout
+    /// pass to decide how wide the collapsed notch is.
+    var hasLiveContent: Bool { get }
 }
 
 public extension NotchModule {
@@ -289,6 +294,7 @@ public extension NotchModule {
 ```swift
 import NotchCore
 import Observation
+import SwiftUI
 
 /// Owns the app's modules, honours the user's layout, and tracks which tab is
 /// showing. Shared across every screen surface, so all displays agree.
@@ -300,16 +306,18 @@ public final class ModuleRegistry {
 
     private var modules: [ModuleID: any NotchModule] = [:]
     private var activated: ModuleID?
+    private var panelVisible = false
 
     public init(layout: ModuleLayout = ModuleLayout()) {
         self.layout = layout
     }
 
     public func register(_ module: any NotchModule) {
+        precondition(modules[module.id] == nil, "module \(module.id.rawValue) registered twice")
         modules[module.id] = module
         layout.register(module.id)
         if selection == nil {
-            selection = layout.defaultSelection
+            selection = visibleModules.first?.id
         }
     }
 
@@ -322,19 +330,28 @@ public final class ModuleRegistry {
     }
 
     public var selectedModule: (any NotchModule)? {
-        guard let selection else { return nil }
-        return modules[selection]
+        if let selection, let module = modules[selection] {
+            return module
+        }
+        return visibleModules.first
     }
 
     public func select(_ id: ModuleID) {
         guard modules[id] != nil, !layout.disabled.contains(id) else { return }
         selection = id
+        reconcileActivation()
     }
 
     /// Activates the selected module and deactivates whichever was active before,
-    /// so exactly one module holds live resources at a time.
+    /// so exactly one module holds live resources at a time — whether the change
+    /// came from the panel opening or from the user switching tabs while it is open.
     public func setPanelVisible(_ visible: Bool) {
-        let wanted = visible ? selection : nil
+        panelVisible = visible
+        reconcileActivation()
+    }
+
+    private func reconcileActivation() {
+        let wanted = panelVisible ? selection : nil
         guard wanted != activated else { return }
 
         if let activated, let module = modules[activated] {
@@ -346,9 +363,15 @@ public final class ModuleRegistry {
         }
     }
 
-    /// The first visible module offering live content for the collapsed notch.
-    public var peekProvider: (any NotchModule)? {
-        visibleModules.first { $0.peekView() != nil }
+    /// The first visible module's live content for the collapsed notch, if any.
+    public var peekView: AnyView? {
+        visibleModules.lazy.compactMap { $0.peekView() }.first
+    }
+
+    /// Whether any visible module has content for the collapsed notch. Drives
+    /// the collapsed notch's width, so it is read on every layout pass.
+    public var hasLiveContent: Bool {
+        visibleModules.contains { $0.hasLiveContent }
     }
 }
 ```
@@ -420,15 +443,35 @@ In `NotchViewModel`, add a stored `public let registry: ModuleRegistry` and take
 
 - [ ] **Step 3: Render modules in the shell**
 
-Replace `NotchShellView`'s `content` property with:
+In `NotchViewModel.targetSize`, the `.closed` case returns `peekSize` while `registry.hasLiveContent` is true — the collapsed notch widens for live content without leaving `.closed`, because `.peek` is the timed live-activity mode and would expire. `surfaceRectInScreen` derives from `targetSize`, so the hover region follows; `maximumSize` already covers `peekSize`, so the panel needs no change:
+
+```swift
+    public var targetSize: CGSize {
+        switch mode {
+        case .closed where registry.hasLiveContent:
+            peekSize
+        case .closed:
+            CGSize(width: metrics.rect.width + closedFlare * 2, height: metrics.rect.height)
+        case .peek:
+            peekSize
+        case .open, .pinned:
+            openSize
+        }
+    }
+```
+
+Replace `NotchShellView`'s `content` property with (and key the shell's `.animation` on `model.targetSize` rather than `model.mode`, so the widening animates too):
 
 ```swift
     @ViewBuilder
     private var content: some View {
         switch model.mode {
+        case .closed where model.registry.hasLiveContent:
+            peekContent
         case .closed:
             EmptyView()
         case .peek:
+            // The timed live-activity payload; unrelated to module live content.
             peekContent
         case .open, .pinned:
             expandedContent
@@ -437,7 +480,7 @@ Replace `NotchShellView`'s `content` property with:
 
     @ViewBuilder
     private var peekContent: some View {
-        if let peek = model.registry.peekProvider?.peekView() {
+        if let peek = model.registry.peekView {
             peek
                 .padding(.horizontal, model.closedFlare + 4)
                 .frame(maxHeight: .infinity)
@@ -448,8 +491,11 @@ Replace `NotchShellView`'s `content` property with:
     @ViewBuilder
     private var expandedContent: some View {
         VStack(spacing: 0) {
-            ModuleTabStrip(registry: model.registry)
-                .frame(height: model.metrics.rect.height)
+            HStack(spacing: 0) {
+                ModuleTabStrip(registry: model.registry)
+                Spacer(minLength: model.metrics.rect.width + 24)
+            }
+            .frame(height: model.metrics.rect.height)
             if let module = model.registry.selectedModule {
                 module.expandedView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -466,7 +512,10 @@ Replace `NotchShellView`'s `content` property with:
     }
 ```
 
-The tab strip occupies a band the height of the physical notch, so it sits either side of the camera housing rather than under it.
+The tab strip band is the height of the physical notch. Rather than centring the
+strip under the opaque camera housing — where it would be invisible on a real
+MacBook — it is pinned to the left flank, with a `Spacer` reserving the housing's
+width plus margin in the middle and the right flank free for future controls.
 
 - [ ] **Step 4: Build**
 
@@ -679,43 +728,89 @@ Copy into `ThirdParty/mediaremote-adapter/`: the Objective-C sources and headers
 
 ```bash
 #!/usr/bin/env bash
-# Builds the vendored mediaremote-adapter sources into a code-signed framework.
+# Builds the vendored mediaremote-adapter sources into a code-signed framework
+# plus the MediaRemoteAdapterTestClient helper, both under build/.
 #
 # Upstream builds with CMake; we use clang directly so the only requirement is
-# the Xcode toolchain. The framework MUST be signed or /usr/bin/perl cannot
-# dlopen it, and the directory name must match the binary name inside it —
-# the .pl script derives one from the other.
+# the Xcode toolchain. Things that must stay true:
+#   - The framework MUST be signed or /usr/bin/perl cannot dlopen it. Ad-hoc
+#     is enough; bundle.sh re-signs it with the app's identity via --deep.
+#   - The directory name must match the binary name inside it — the .pl script
+#     derives one from the other.
+#   - Symbols must be exported (-fvisibility=default) or perl's DynaLoader
+#     cannot find adapter_get & co. Upstream's CMakeLists says the same.
+#
+# Prints the framework path on stdout; everything else goes to stderr.
+# Skips the build when a stamp file written after the last successful,
+# fully-signed build is newer than every vendored source and this script;
+# set FORCE=1 to rebuild regardless.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$ROOT/ThirdParty/mediaremote-adapter"
-OUT="$ROOT/build/MediaRemoteAdapter.framework"
+BUILD="$ROOT/build"
 NAME="MediaRemoteAdapter"
+OUT="$BUILD/$NAME.framework"
+BIN="$OUT/Versions/A/$NAME"
+CLIENT="$BUILD/${NAME}TestClient"
+STAMP="$BUILD/.media-adapter-stamp"
+ARCH="${ARCH:-$(uname -m)}"
+MIN_MACOS="26.0"
 
-rm -rf "$OUT"
-mkdir -p "$OUT/Versions/A/Resources"
+# The stamp is written as the very last step, after codesign, so a run
+# interrupted after linking but before signing leaves no stamp and the next
+# run rebuilds instead of accepting half-finished (unsigned) binaries.
+up_to_date() {
+    [ -f "$STAMP" ] || return 1
+    [ -z "$(find "$SRC" "${BASH_SOURCE[0]}" -type f -newer "$STAMP" -print -quit)" ]
+}
 
-clang -dynamiclib -fobjc-arc -O2 \
-    -arch arm64 -mmacosx-version-min=26.0 \
+if [ "${FORCE:-0}" != "1" ] && up_to_date; then
+    echo "media adapter up to date: $OUT" >&2
+    echo "$OUT"
+    exit 0
+fi
+
+echo "building $NAME.framework ($ARCH)" >&2
+rm -rf "$OUT" "$CLIENT"
+mkdir -p "$OUT/Versions/A/Resources" "$OUT/Versions/A/Headers"
+
+# Upstream's source list (CMakeLists.txt: ADAPTER_SOURCES). Sources import
+# headers as "adapter/get.h" and "MediaRemoteAdapter.h", hence both -I paths.
+clang -dynamiclib -fobjc-arc -fvisibility=default -O2 \
+    -arch "$ARCH" -mmacosx-version-min="$MIN_MACOS" \
     -framework Foundation -framework AppKit -framework UniformTypeIdentifiers \
     -install_name "@rpath/$NAME.framework/Versions/A/$NAME" \
-    -I "$SRC/include" \
-    -o "$OUT/Versions/A/$NAME" \
-    "$SRC"/src/*.m
+    -compatibility_version 1.0 -current_version 0.7.6 \
+    -I "$SRC/include" -I "$SRC/src" \
+    -o "$BIN" \
+    "$SRC"/src/adapter/*.m "$SRC"/src/private/*.m "$SRC"/src/utility/*.m
 
-cat > "$OUT/Versions/A/Resources/Info.plist" <<'PLIST'
+cp "$SRC/include/$NAME.h" "$OUT/Versions/A/Headers/"
+
+cat > "$OUT/Versions/A/Resources/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>MediaRemoteAdapter</string>
+    <string>$NAME</string>
     <key>CFBundleIdentifier</key>
-    <string>com.skensell.notchdeck.MediaRemoteAdapter</string>
+    <string>com.skensell.notchdeck.$NAME</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$NAME</string>
     <key>CFBundlePackageType</key>
     <string>FMWK</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.7.6</string>
     <key>CFBundleVersion</key>
     <string>0.7.6</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>$MIN_MACOS</string>
 </dict>
 </plist>
 PLIST
@@ -723,8 +818,22 @@ PLIST
 ln -sfn A "$OUT/Versions/Current"
 ln -sfn "Versions/Current/$NAME" "$OUT/$NAME"
 ln -sfn Versions/Current/Resources "$OUT/Resources"
+ln -sfn Versions/Current/Headers "$OUT/Headers"
 
-codesign --force --sign - "$OUT"
+# The test client publishes a fake now-playing entry so the adapter's `test`
+# command can prove MediaRemote answers even when nothing is playing.
+echo "building ${NAME}TestClient ($ARCH)" >&2
+clang -fobjc-arc -O2 \
+    -arch "$ARCH" -mmacosx-version-min="$MIN_MACOS" \
+    -framework Foundation -framework MediaPlayer \
+    -I "$SRC/src/test" \
+    -o "$CLIENT" \
+    "$SRC"/src/test/main.m "$SRC"/src/test/NowPlayingTest.m
+
+codesign --force --sign - "$OUT" >&2
+codesign --force --sign - "$CLIENT" >&2
+
+touch "$STAMP"
 echo "$OUT"
 ```
 
@@ -800,6 +909,7 @@ Run: `swift build` — expect a failure that `Sources/Media` has no sources yet;
 `Tests/MediaTests/NowPlayingDecoderTests.swift`:
 
 ```swift
+import Foundation
 import Testing
 @testable import Media
 
@@ -825,7 +935,8 @@ struct NowPlayingDecoderTests {
     func fullSnapshot() throws {
         var decoder = NowPlayingDecoder()
 
-        let state = try #require(decoder.consume(line: snapshot))
+        let consumed = decoder.consume(line: snapshot)
+        let state = try #require(consumed)
 
         #expect(state.bundleIdentifier == "com.google.Chrome")
         #expect(state.title == "Spike Test Track")
@@ -840,9 +951,10 @@ struct NowPlayingDecoderTests {
         var decoder = NowPlayingDecoder()
         _ = decoder.consume(line: snapshot)
 
-        let state = try #require(decoder.consume(
+        let consumed = decoder.consume(
             line: #"{"type":"data","diff":true,"payload":{"playing":false,"playbackRate":0}}"#
-        ))
+        )
+        let state = try #require(consumed)
 
         #expect(!state.isPlaying)
         #expect(state.playbackRate == 0)
@@ -855,9 +967,10 @@ struct NowPlayingDecoderTests {
         var decoder = NowPlayingDecoder()
         _ = decoder.consume(line: snapshot)
 
-        let state = try #require(decoder.consume(
+        let consumed = decoder.consume(
             line: #"{"type":"data","diff":true,"payload":{"artist":null}}"#
-        ))
+        )
+        let state = try #require(consumed)
 
         #expect(state.artist == nil)
         #expect(state.album == "MediaRemote Probe")
@@ -868,9 +981,10 @@ struct NowPlayingDecoderTests {
         var decoder = NowPlayingDecoder()
         _ = decoder.consume(line: snapshot)
 
-        let state = try #require(decoder.consume(
+        let consumed = decoder.consume(
             line: #"{"type":"data","diff":false,"payload":{"bundleIdentifier":"com.apple.Music","title":"Other","playing":true}}"#
-        ))
+        )
+        let state = try #require(consumed)
 
         #expect(state.title == "Other")
         #expect(state.artist == nil)
@@ -881,18 +995,42 @@ struct NowPlayingDecoderTests {
     func requiredFieldsAreRequired() {
         var decoder = NowPlayingDecoder()
 
+        // `title` and `playing` are the dependable fields; `bundleIdentifier` is
+        // not one of them — the adapter's own mandatory-key list is
+        // `processIdentifier`, `title`, `playing`, so a payload can have a
+        // bundle id and still be missing the one field that actually gates a
+        // snapshot.
         #expect(decoder.consume(
-            line: #"{"type":"data","diff":false,"payload":{"title":"No bundle id","playing":true}}"#
+            line: #"{"type":"data","diff":false,"payload":{"bundleIdentifier":"com.example","playing":true}}"#
         ) == nil)
+    }
+
+    @Test("a CLI player with no resolvable bundle id still yields a snapshot")
+    func noBundleIdentifierStillYieldsASnapshot() throws {
+        // mpv registers with Now Playing but never resolves to an
+        // `NSRunningApplication` with a bundle id, so the adapter never sends
+        // `bundleIdentifier` for it — only the mandatory keys.
+        var decoder = NowPlayingDecoder()
+
+        let consumed = decoder.consume(
+            line: #"{"type":"data","diff":false,"payload":{"processIdentifier":4242,"title":"track.mp3","playing":true}}"#
+        )
+        let state = try #require(consumed)
+
+        #expect(state.bundleIdentifier == nil)
+        #expect(state.processIdentifier == 4242)
+        #expect(state.title == "track.mp3")
+        #expect(state.isPlaying)
     }
 
     @Test("a sparse payload with only the required fields still yields a snapshot")
     func sparsePayload() throws {
         var decoder = NowPlayingDecoder()
 
-        let state = try #require(decoder.consume(
+        let consumed = decoder.consume(
             line: #"{"type":"data","diff":false,"payload":{"bundleIdentifier":"org.telegram","title":"Voice","playing":true}}"#
-        ))
+        )
+        let state = try #require(consumed)
 
         #expect(state.artist == nil)
         #expect(state.album == nil)
@@ -905,9 +1043,10 @@ struct NowPlayingDecoderTests {
         var decoder = NowPlayingDecoder()
         _ = decoder.consume(line: snapshot)
 
-        let state = try #require(decoder.consume(
+        let consumed = decoder.consume(
             line: #"{"type":"data","diff":true,"payload":{"artworkData":"QUJD","artworkMimeType":"image/jpeg"}}"#
-        ))
+        )
+        let state = try #require(consumed)
 
         #expect(state.artwork?.data == Data("ABC".utf8))
         #expect(state.artwork?.mimeType == "image/jpeg")
@@ -938,6 +1077,19 @@ struct NowPlayingDecoderTests {
         #expect(decoder.snapshot?.title == "Spike Test Track")
     }
 
+    @Test("one malformed field does not discard the rest of the line")
+    func malformedFieldIsSkippedNotFatal() throws {
+        var decoder = NowPlayingDecoder()
+
+        let consumed = decoder.consume(
+            line: #"{"type":"data","diff":false,"payload":{"title":"Still Works","playing":true,"durationMicros":"not a number"}}"#
+        )
+        let state = try #require(consumed)
+
+        #expect(state.title == "Still Works")
+        #expect(state.durationMicros == nil)
+    }
+
     @Test("a blank line is ignored")
     func blankLineIsIgnored() throws {
         var decoder = NowPlayingDecoder()
@@ -963,15 +1115,19 @@ import Foundation
 
 /// A now-playing snapshot.
 ///
-/// Only `bundleIdentifier`, `title` and `isPlaying` are dependable: the adapter's
-/// key set varies by player, and browsers in particular omit most of the rest.
+/// Only `title` and `isPlaying` are dependable: the adapter's own mandatory-key
+/// list is `processIdentifier`, `title`, `playing` — `bundleIdentifier` is present
+/// only when the now-playing process resolves to an `NSRunningApplication` with a
+/// bundle id, which a CLI player such as `mpv` never does even while it is
+/// genuinely playing.
 public struct NowPlaying: Equatable, Sendable {
     public struct Artwork: Equatable, Sendable {
         public var data: Data
         public var mimeType: String?
     }
 
-    public var bundleIdentifier: String
+    public var bundleIdentifier: String?
+    public var processIdentifier: Int32?
     public var title: String
     public var isPlaying: Bool
 
@@ -1017,6 +1173,7 @@ public enum FieldUpdate<Value: Equatable & Sendable>: Equatable, Sendable {
 /// The `payload` object of one stream line.
 struct PayloadDelta: Decodable {
     var bundleIdentifier: FieldUpdate<String> = .unchanged
+    var processIdentifier: FieldUpdate<Int32> = .unchanged
     var title: FieldUpdate<String> = .unchanged
     var artist: FieldUpdate<String> = .unchanged
     var album: FieldUpdate<String> = .unchanged
@@ -1030,7 +1187,7 @@ struct PayloadDelta: Decodable {
     var artworkMimeType: FieldUpdate<String> = .unchanged
 
     private enum CodingKeys: String, CodingKey {
-        case bundleIdentifier, title, artist, album, contentItemIdentifier
+        case bundleIdentifier, processIdentifier, title, artist, album, contentItemIdentifier
         case playing, playbackRate, elapsedTimeMicros, durationMicros
         case timestampEpochMicros, artworkData, artworkMimeType
     }
@@ -1038,24 +1195,30 @@ struct PayloadDelta: Decodable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        func update<T: Decodable & Equatable & Sendable>(_ key: CodingKeys) throws -> FieldUpdate<T> {
+        // A key that is present but decodes as the wrong type (e.g. the adapter
+        // sending a string where a number is expected) is treated as `.unchanged`
+        // rather than failing the whole line — one malformed field must not
+        // discard the dependable ones alongside it.
+        func update<T: Decodable & Equatable & Sendable>(_ key: CodingKeys) -> FieldUpdate<T> {
             guard container.contains(key) else { return .unchanged }
-            if try container.decodeNil(forKey: key) { return .cleared }
-            return .set(try container.decode(T.self, forKey: key))
+            if (try? container.decodeNil(forKey: key)) == true { return .cleared }
+            guard let value = try? container.decode(T.self, forKey: key) else { return .unchanged }
+            return .set(value)
         }
 
-        bundleIdentifier = try update(.bundleIdentifier)
-        title = try update(.title)
-        artist = try update(.artist)
-        album = try update(.album)
-        contentItemIdentifier = try update(.contentItemIdentifier)
-        playing = try update(.playing)
-        playbackRate = try update(.playbackRate)
-        elapsedTimeMicros = try update(.elapsedTimeMicros)
-        durationMicros = try update(.durationMicros)
-        timestampEpochMicros = try update(.timestampEpochMicros)
-        artworkData = try update(.artworkData)
-        artworkMimeType = try update(.artworkMimeType)
+        bundleIdentifier = update(.bundleIdentifier)
+        processIdentifier = update(.processIdentifier)
+        title = update(.title)
+        artist = update(.artist)
+        album = update(.album)
+        contentItemIdentifier = update(.contentItemIdentifier)
+        playing = update(.playing)
+        playbackRate = update(.playbackRate)
+        elapsedTimeMicros = update(.elapsedTimeMicros)
+        durationMicros = update(.durationMicros)
+        timestampEpochMicros = update(.timestampEpochMicros)
+        artworkData = update(.artworkData)
+        artworkMimeType = update(.artworkMimeType)
     }
 }
 
@@ -1076,10 +1239,13 @@ import Foundation
 ///
 /// `diff:false` payloads replace the state outright; `diff:true` payloads merge,
 /// with an explicit null clearing a field. A snapshot is produced only once the
-/// three dependable fields are all known.
+/// two dependable fields — `title` and `playing` — are both known. `bundleIdentifier`
+/// is not required: the adapter itself only sends it when the now-playing process
+/// resolves to an `NSRunningApplication` with a bundle id.
 public struct NowPlayingDecoder {
     private struct Partial: Equatable {
         var bundleIdentifier: String?
+        var processIdentifier: Int32?
         var title: String?
         var playing: Bool?
         var artist: String?
@@ -1089,7 +1255,9 @@ public struct NowPlayingDecoder {
         var elapsedTimeMicros: Int64?
         var durationMicros: Int64?
         var timestampEpochMicros: Int64?
-        var artworkBase64: String?
+        /// Decoded once, when `artworkData` arrives as `.set` — not re-decoded on
+        /// every subsequent line, most of which don't touch artwork at all.
+        var artworkData: Data?
         var artworkMimeType: String?
     }
 
@@ -1127,6 +1295,7 @@ public struct NowPlayingDecoder {
 
     private mutating func apply(_ delta: PayloadDelta) {
         partial.bundleIdentifier = delta.bundleIdentifier.applied(to: partial.bundleIdentifier)
+        partial.processIdentifier = delta.processIdentifier.applied(to: partial.processIdentifier)
         partial.title = delta.title.applied(to: partial.title)
         partial.playing = delta.playing.applied(to: partial.playing)
         partial.artist = delta.artist.applied(to: partial.artist)
@@ -1136,24 +1305,34 @@ public struct NowPlayingDecoder {
         partial.elapsedTimeMicros = delta.elapsedTimeMicros.applied(to: partial.elapsedTimeMicros)
         partial.durationMicros = delta.durationMicros.applied(to: partial.durationMicros)
         partial.timestampEpochMicros = delta.timestampEpochMicros.applied(to: partial.timestampEpochMicros)
-        partial.artworkBase64 = delta.artworkData.applied(to: partial.artworkBase64)
         partial.artworkMimeType = delta.artworkMimeType.applied(to: partial.artworkMimeType)
+
+        switch delta.artworkData {
+        case .unchanged:
+            break
+        case .cleared:
+            partial.artworkData = nil
+        case .set(let base64):
+            // Base64-decode once, here, rather than on every `project()` call —
+            // most lines are single-key diffs that never touch artwork.
+            partial.artworkData = Data(base64Encoded: base64)
+        }
     }
 
     private func project() -> NowPlaying? {
-        guard let bundleIdentifier = partial.bundleIdentifier,
-              let title = partial.title,
+        guard let title = partial.title,
               let playing = partial.playing else {
             return nil
         }
 
         var artwork: NowPlaying.Artwork?
-        if let base64 = partial.artworkBase64, let data = Data(base64Encoded: base64) {
+        if let data = partial.artworkData {
             artwork = NowPlaying.Artwork(data: data, mimeType: partial.artworkMimeType)
         }
 
         return NowPlaying(
-            bundleIdentifier: bundleIdentifier,
+            bundleIdentifier: partial.bundleIdentifier,
+            processIdentifier: partial.processIdentifier,
             title: title,
             isPlaying: playing,
             artist: partial.artist,
@@ -1172,7 +1351,7 @@ public struct NowPlayingDecoder {
 - [ ] **Step 7: Run the tests**
 
 Run: `swift test --filter NowPlayingDecoderTests`
-Expected: 12 tests pass. Full suite still green.
+Expected: 15 tests pass. Full suite still green.
 
 - [ ] **Step 8: Commit**
 
@@ -1291,6 +1470,15 @@ struct PlaybackPositionTests {
         #expect(PlaybackPosition.micros(of: state, atEpochMicros: start + 60_000_000) == 7_000_000)
     }
 
+    @Test("an extreme clock/rate combination clamps instead of trapping")
+    func extremeDriftDoesNotTrap() {
+        // A clock reset to 1970 combined with a large playbackRate used to produce
+        // a drift around -1.8e25, which overflowed `Int64(drift)` and crashed.
+        let state = track(rate: 1e10, elapsed: 0, timestamp: 1_788_357_423_000_000)
+
+        #expect(PlaybackPosition.micros(of: state, atEpochMicros: 0) == 0)
+    }
+
     @Test("progress is the fraction of the duration, and nil without one")
     func progress() {
         let state = track(rate: 0, elapsed: 25_000_000, timestamp: start)
@@ -1325,13 +1513,22 @@ public enum PlaybackPosition {
         guard let elapsed = state.elapsedTimeMicros else { return nil }
         guard let timestamp = state.timestampEpochMicros else { return elapsed }
 
-        let drift = Double(now - timestamp) * state.playbackRate
-        var position = elapsed + Int64(drift)
-
-        if let duration = state.durationMicros {
-            position = min(position, duration)
+        // Compute entirely in `Double`: `now - timestamp` can overflow `Int64` for
+        // extreme inputs (an adapter-reported clock reset to 1970, say), and a
+        // large `playbackRate` can blow the drift far past what `Int64` can hold —
+        // `Int64(drift)` traps in that case. Everything is clamped in floating
+        // point before ever converting back to `Int64`.
+        let drift = (Double(now) - Double(timestamp)) * state.playbackRate
+        guard drift.isFinite else {
+            return drift > 0 ? (state.durationMicros ?? Int64.max) : 0
         }
-        return max(position, 0)
+
+        // `Double(Int64.max)` itself rounds up to 2^63, one past what `Int64` can
+        // hold, so converting it back would trap; `.nextDown` is the nearest
+        // representable value that safely round-trips.
+        let upperBound = state.durationMicros.map(Double.init) ?? Double(Int64.max).nextDown
+        let position = min(max(Double(elapsed) + drift, 0), upperBound)
+        return Int64(position)
     }
 
     public static func progress(of state: NowPlaying, atEpochMicros now: Int64) -> Double? {
@@ -1347,7 +1544,7 @@ public enum PlaybackPosition {
 - [ ] **Step 4: Run the tests**
 
 Run: `swift test --filter PlaybackPositionTests`
-Expected: 10 tests pass.
+Expected: 11 tests pass.
 
 - [ ] **Step 5: Commit**
 
@@ -1487,6 +1684,7 @@ Expected: FAIL — `cannot find 'MediaCommands' in scope`.
 
 ```swift
 import AppKit
+import Support
 
 public enum TransportAction: Equatable, Sendable {
     case play, pause, toggle, next, previous
@@ -1554,15 +1752,19 @@ public struct MediaCommands: Sendable {
 /// failure here degrades transport rather than breaking the module. Verify the
 /// behaviour by hand and record the result in the README checklist.
 public struct SystemMediaKeyPoster: MediaKeyPoster {
+    private static let logger = Log.make("media.keys")
+
     public init() {}
 
     public func post(keyCode: Int32) {
         for isDown in [true, false] {
-            let flags = NSEvent.ModifierFlags(rawValue: UInt(isDown ? 0xA00 : 0xB00))
+            // The media-key path does not consult `modifierFlags` at all — the
+            // down/up state lives entirely in `data1`'s low byte below — so no
+            // raw value here does anything; pass none.
             guard let event = NSEvent.otherEvent(
                 with: .systemDefined,
                 location: .zero,
-                modifierFlags: flags,
+                modifierFlags: [],
                 timestamp: 0,
                 windowNumber: 0,
                 context: nil,
@@ -1570,7 +1772,11 @@ public struct SystemMediaKeyPoster: MediaKeyPoster {
                 data1: Int((keyCode << 16)) | Int(isDown ? 0xA00 : 0xB00),
                 data2: -1
             ) else { continue }
-            event.cgEvent?.post(tap: .cghidEventTap)
+            guard let cgEvent = event.cgEvent else {
+                Self.logger.error("could not create a CGEvent for media key \(keyCode, privacy: .public)")
+                continue
+            }
+            cgEvent.post(tap: .cghidEventTap)
         }
     }
 }
@@ -1658,10 +1864,14 @@ import Support
 public struct AdapterPaths: Sendable {
     public let script: URL
     public let framework: URL
+    /// Absolute path to the bundled `MediaRemoteAdapterTestClient`, when present.
+    /// Only the `test` probe uses it — see `arguments(_:includeTestClient:)`.
+    public let testClient: URL?
 
-    public init(script: URL, framework: URL) {
+    public init(script: URL, framework: URL, testClient: URL? = nil) {
         self.script = script
         self.framework = framework
+        self.testClient = testClient
     }
 
     public static func inMainBundle(_ bundle: Bundle = .main) -> AdapterPaths? {
@@ -1673,11 +1883,26 @@ public struct AdapterPaths: Sendable {
         guard FileManager.default.fileExists(atPath: framework.path(percentEncoded: false)) else {
             return nil
         }
-        return AdapterPaths(script: script, framework: framework)
+        let testClientCandidate = bundle.bundleURL.appending(path: "Contents/MacOS/MediaRemoteAdapterTestClient")
+        let testClient = FileManager.default.fileExists(atPath: testClientCandidate.path(percentEncoded: false))
+            ? testClientCandidate
+            : nil
+        return AdapterPaths(script: script, framework: framework, testClient: testClient)
     }
 
-    func arguments(_ command: [String]) -> [String] {
-        [script.path(percentEncoded: false), framework.path(percentEncoded: false)] + command
+    /// Builds the perl invocation's arguments. The vendored script's usage is
+    /// `FRAMEWORK_PATH [TEST_CLIENT_PATH] FUNCTION [PARAMS|OPTIONS...]` — the test
+    /// client path is recognised only because it contains a "/", so it must sit
+    /// between the framework path and the command, never among the command's own
+    /// arguments. Only `probe()` passes `includeTestClient: true`: without the
+    /// client, `test` silently degrades to a plain `get` and proves nothing.
+    func arguments(_ command: [String], includeTestClient: Bool = false) -> [String] {
+        var arguments = [script.path(percentEncoded: false), framework.path(percentEncoded: false)]
+        if includeTestClient, let testClient {
+            arguments.append(testClient.path(percentEncoded: false))
+        }
+        arguments += command
+        return arguments
     }
 }
 
@@ -1700,9 +1925,44 @@ public protocol AdapterStreamSource: Sendable {
     func stop()
 }
 
+/// Accumulates raw bytes from the adapter's stdout pipe and splits them into
+/// lines. Strict concurrency rejects a plain `var` captured by the pipe's
+/// `readabilityHandler` closure (it runs on a dispatch queue, not in-line), so the
+/// buffer is boxed here and guarded by the same lock `PerlAdapterStream` already
+/// uses for `process`, rather than weakening the stream's Sendable conformance.
+private final class LineBuffer: @unchecked Sendable {
+    private let lock: NSLock
+    private var data = Data()
+
+    init(lock: NSLock) {
+        self.lock = lock
+    }
+
+    /// Appends a chunk and returns the complete lines it produced, if any.
+    func consuming(_ chunk: Data) -> [String] {
+        lock.withLock {
+            data.append(chunk)
+            var lines: [String] = []
+            while let newline = data.firstIndex(of: UInt8(ascii: "\n")) {
+                let line = data[data.startIndex..<newline]
+                data.removeSubrange(data.startIndex...newline)
+                if let text = String(data: line, encoding: .utf8) {
+                    lines.append(text)
+                }
+            }
+            return lines
+        }
+    }
+}
+
 /// Spawns `/usr/bin/perl` on the vendored adapter and yields one line per JSON
-/// object. `--micros` gives integer epoch microseconds instead of an ISO date, and
-/// `--debounce` coalesces the two-line bursts a single state change produces.
+/// object. `--micros` gives integer epoch microseconds instead of an ISO date.
+/// `--debounce` does *not* coalesce the two-line bursts a single state change
+/// produces: in the adapter's `stream.m`, only the `NowPlayingInfoDidChange`
+/// observer is debounced — `IsPlayingDidChange` still dispatches immediately — so
+/// the flag stretches such a burst to at least the debounce delay rather than
+/// merging it into one line. Coalescing the burst, if it is ever needed, is this
+/// stream's consumer's job.
 public final class PerlAdapterStream: AdapterStreamSource, @unchecked Sendable {
     private let paths: AdapterPaths
     private let logger = Log.make("media.adapter")
@@ -1723,17 +1983,20 @@ public final class PerlAdapterStream: AdapterStreamSource, @unchecked Sendable {
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
 
-            var buffer = Data()
+            let buffer = LineBuffer(lock: lock)
             pipe.fileHandleForReading.readabilityHandler = { handle in
                 let chunk = handle.availableData
-                guard !chunk.isEmpty else { return }
-                buffer.append(chunk)
-                while let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
-                    let line = buffer[buffer.startIndex..<newline]
-                    buffer.removeSubrange(buffer.startIndex...newline)
-                    if let text = String(data: line, encoding: .utf8) {
-                        continuation.yield(text)
-                    }
+                guard !chunk.isEmpty else {
+                    // An empty chunk at this handler means EOF on the read end. If
+                    // the handler is left in place, a persistent EOF (e.g. an
+                    // unlaunched process whose Pipe gets released) fires it
+                    // continuously — measured at over 500,000 calls/s, pinning a
+                    // core. Clear it so EOF is handled once, not spun on.
+                    handle.readabilityHandler = nil
+                    return
+                }
+                for text in buffer.consuming(chunk) {
+                    continuation.yield(text)
                 }
             }
 
@@ -1743,26 +2006,84 @@ public final class PerlAdapterStream: AdapterStreamSource, @unchecked Sendable {
                 continuation.finish()
             }
 
-            continuation.onTermination = { [weak self] _ in
-                self?.stop()
-            }
-
             do {
                 try process.run()
                 lock.withLock { self.process = process }
+                // Capture `process` directly rather than going through `self`: if
+                // this `PerlAdapterStream` is released while its AsyncStream is
+                // still being consumed, cancellation must still reach the specific
+                // subprocess this call started, not whatever `self.process`
+                // happens to hold by then (a later `lines()` call would have
+                // overwritten it). `terminate()` on a process that has already
+                // exited — e.g. via `terminationHandler` above — is a no-op;
+                // verified this doesn't throw. It does throw, however, on a
+                // process that was never launched, which is why this is set only
+                // after `process.run()` succeeds.
+                continuation.onTermination = { _ in
+                    process.terminate()
+                }
             } catch {
+                pipe.fileHandleForReading.readabilityHandler = nil
                 logger.error("could not start the adapter: \(error.localizedDescription, privacy: .public)")
                 continuation.finish()
             }
         }
     }
 
+    /// Terminates the most recently started process, if any. `lines()`'s own
+    /// `continuation.onTermination` is the reliable teardown path for a given
+    /// stream — this is a convenience for callers holding onto the stream object.
     public func stop() {
         let running = lock.withLock { () -> Process? in
             defer { process = nil }
             return process
         }
         running?.terminate()
+    }
+}
+
+/// Kills adapter subprocesses left behind by a previous instance that did not exit
+/// cleanly. Matches only processes running *this bundle's* script, so other apps
+/// using the same adapter are untouched. Best-effort: a failure here is logged and
+/// otherwise ignored.
+///
+/// Needed because the adapter is silent while nothing plays — the spec's "zero
+/// output when nothing changes" — so an idle `stream` never notices its parent is
+/// gone: it neither gets `SIGPIPE` nor exits on its own. A graceful quit stops it
+/// through `MediaModule.shutdown()`; anything ungraceful leaves it for this.
+public enum AdapterReaper {
+    private static let logger = Log.make("media.adapter")
+
+    public static func reapOrphans(of paths: AdapterPaths) async {
+        // `pkill -f` matches against the full command line, and the script's
+        // absolute path is the one part of it unique to this bundle. Escaped so
+        // the dots in the path do not match arbitrary characters.
+        let pattern = NSRegularExpression.escapedPattern(for: paths.script.path(percentEncoded: false))
+        let status: Int32? = await withCheckedContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(filePath: "/usr/bin/pkill")
+            process.arguments = ["-f", pattern]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            process.terminationHandler = { finished in
+                continuation.resume(returning: finished.terminationStatus)
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(returning: nil)
+            }
+        }
+        switch status {
+        case 0:
+            logger.notice("reaped an orphaned adapter from a previous instance")
+        case 1:
+            break // Nothing matched: the previous instance exited cleanly.
+        case let other?:
+            logger.warning("pkill exited with status \(other, privacy: .public); orphaned adapters may remain")
+        case nil:
+            logger.warning("could not run pkill; orphaned adapters may remain")
+        }
     }
 }
 
@@ -1775,10 +2096,22 @@ public struct PerlAdapterCommandRunner: AdapterCommandRunner {
     }
 
     public func run(arguments: [String]) async -> Bool {
+        await run(arguments: arguments, includeTestClient: false)
+    }
+
+    /// Runs the adapter's `test` command, which exits 0 when MediaRemote access
+    /// genuinely works. Used once at launch to decide whether to degrade. Passes
+    /// the bundled test client — without it, `test` degrades to a plain `get` and
+    /// proves nothing.
+    public func probe() async -> Bool {
+        await run(arguments: ["test"], includeTestClient: true)
+    }
+
+    private func run(arguments: [String], includeTestClient: Bool) async -> Bool {
         await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = URL(filePath: "/usr/bin/perl")
-            process.arguments = paths.arguments(arguments)
+            process.arguments = paths.arguments(arguments, includeTestClient: includeTestClient)
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             process.terminationHandler = { finished in
@@ -1790,12 +2123,6 @@ public struct PerlAdapterCommandRunner: AdapterCommandRunner {
                 continuation.resume(returning: false)
             }
         }
-    }
-
-    /// Runs the adapter's `test` command, which exits 0 when MediaRemote access
-    /// genuinely works. Used once at launch to decide whether to degrade.
-    public func probe() async -> Bool {
-        await run(arguments: ["test"])
     }
 }
 ```
@@ -1841,6 +2168,11 @@ public final class MediaModule: NotchModule {
 
     /// The current track, or nil when nothing is known.
     public private(set) var state: NowPlaying?
+    /// The current track's artwork, decoded once per distinct image rather than
+    /// on every redraw. Keyed by the bytes, not `contentItemIdentifier`: the spike
+    /// showed the identifier changing on every pause and resume while the artwork
+    /// stayed the same, and artwork only ever arrives in full snapshots anyway.
+    public private(set) var artworkImage: NSImage?
     /// True once the adapter probe has failed; the UI explains itself instead of
     /// pretending nothing is playing.
     public private(set) var isDegraded = false
@@ -1848,13 +2180,24 @@ public final class MediaModule: NotchModule {
     public private(set) var positionTick: Int64 = 0
     /// Set while the user drags the scrubber, so incoming updates do not fight them.
     public var scrubbingProgress: Double?
+    private var awaitingSeekEcho = false
+    private var seekEchoTimeout: Task<Void, Never>?
+    /// True once a paused track has sat untouched for `peekStaleness`. Observable
+    /// so the shell can react to it: the flag flips from a scheduled task rather
+    /// than being recomputed from timestamps, which nothing would re-read.
+    public private(set) var isStale = false
 
     private let logger = Log.make("media")
     private let paths: AdapterPaths?
     private let commands: MediaCommands
     private var decoder = NowPlayingDecoder()
+    private var artworkData: Data?
     private var streamTask: Task<Void, Never>?
     private var tickTask: Task<Void, Never>?
+    private var stalenessTask: Task<Void, Never>?
+    /// The adapter stream currently being consumed, kept so `shutdown()` can stop
+    /// its subprocess synchronously.
+    private var currentSource: PerlAdapterStream?
 
     /// A paused track older than this stops appearing in the collapsed notch. The
     /// adapter never says "stopped", so this is our own policy.
@@ -1872,11 +2215,18 @@ public final class MediaModule: NotchModule {
         // Both halves are independently idempotent: the stream starts once and
         // outlives the panel, while the tick is panel-scoped and restarts every
         // time the notch opens.
-        if streamTask == nil {
-            startStream()
-        }
+        startStreaming()
         if tickTask == nil {
             startTicking()
+        }
+    }
+
+    /// Starts only the now-playing stream, without the panel-scoped redraw tick.
+    /// The app calls this at launch so the collapsed peek works before the panel
+    /// is ever opened; `activate()` is what the registry calls when it is.
+    public func startStreaming() {
+        if streamTask == nil {
+            startStream()
         }
     }
 
@@ -1893,8 +2243,28 @@ public final class MediaModule: NotchModule {
     }
 
     public func peekView() -> AnyView? {
-        guard let state, isFresh(state) else { return nil }
-        return AnyView(MediaPeekView(state: state))
+        guard hasLiveContent, let state else { return nil }
+        return AnyView(MediaPeekView(state: state, artwork: artworkImage))
+    }
+
+    public var hasLiveContent: Bool {
+        state != nil && !isStale
+    }
+
+    /// Stops the adapter subprocess and every timer, synchronously. Called from
+    /// `applicationWillTerminate`, which is the last chance to do it: cancelling the
+    /// stream task alone would only take effect on a later main-actor turn that
+    /// never comes.
+    public func shutdown() {
+        streamTask?.cancel()
+        tickTask?.cancel()
+        stalenessTask?.cancel()
+        seekEchoTimeout?.cancel()
+        currentSource?.stop()
+        streamTask = nil
+        tickTask = nil
+        stalenessTask = nil
+        currentSource = nil
     }
 
     // MARK: Playback
@@ -1904,15 +2274,40 @@ public final class MediaModule: NotchModule {
     }
 
     public func seek(toProgress progress: Double) {
-        guard let duration = state?.durationMicros else { return }
-        let target = Int64(Double(duration) * min(max(progress, 0), 1))
+        let clamped = min(max(progress, 0), 1)
+        guard let duration = state?.durationMicros else {
+            // Nothing to seek in; drop the drag rather than leaving the bar
+            // frozen at the drag position for every later track.
+            scrubbingProgress = nil
+            return
+        }
+        let target = Int64(Double(duration) * clamped)
+
+        // Hold the bar at the target until the adapter reports the new position,
+        // otherwise it snaps back to the pre-seek position for the round trip.
+        scrubbingProgress = clamped
+        awaitingSeekEcho = true
+        seekEchoTimeout?.cancel()
+
         Task {
             let succeeded = await commands.seek(toMicros: target)
             if !succeeded {
                 logger.notice("seek failed; the adapter is unavailable")
+                releaseScrubber()
             }
-            scrubbingProgress = nil
         }
+        seekEchoTimeout = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            releaseScrubber()
+        }
+    }
+
+    private func releaseScrubber() {
+        awaitingSeekEcho = false
+        seekEchoTimeout?.cancel()
+        seekEchoTimeout = nil
+        scrubbingProgress = nil
     }
 
     public var progress: Double? {
@@ -1932,13 +2327,6 @@ public final class MediaModule: NotchModule {
         Int64(Date().timeIntervalSince1970 * 1_000_000)
     }
 
-    private func isFresh(_ state: NowPlaying) -> Bool {
-        guard state.playbackRate == 0 else { return true }
-        guard let timestamp = state.timestampEpochMicros else { return false }
-        let age = Self.nowMicros() - timestamp
-        return age < Int64(peekStaleness.components.seconds) * 1_000_000
-    }
-
     private func startStream() {
         guard let paths else {
             isDegraded = true
@@ -1947,6 +2335,9 @@ public final class MediaModule: NotchModule {
         }
 
         streamTask = Task { [weak self] in
+            // A previous instance that died ungracefully leaves its idle adapter
+            // behind; clear it before starting our own so exactly one runs.
+            await AdapterReaper.reapOrphans(of: paths)
             let runner = PerlAdapterCommandRunner(paths: paths)
             let works = await runner.probe()
             guard let self else { return }
@@ -1956,29 +2347,83 @@ public final class MediaModule: NotchModule {
                 return
             }
 
+            // A crash-looping adapter always prints its priming `{}` line first,
+            // so "did this attempt see any line" resets the backoff on every
+            // single crash — the loop never actually backs off. What matters is
+            // whether the stream *stayed up*: only a connection that survived for
+            // a while indicates the adapter is genuinely healthy again.
+            let minimumHealthyUptime: Duration = .seconds(5)
+            let clock = ContinuousClock()
             var attempt = 0
             while !Task.isCancelled {
                 let delay = AdapterBackoff.delay(forAttempt: attempt)
                 if delay > .zero {
                     try? await Task.sleep(for: delay)
+                    guard !Task.isCancelled else { break }
                 }
                 let source = PerlAdapterStream(paths: paths)
-                var sawAnything = false
+                self.currentSource = source
+                let started = clock.now
                 for await line in source.lines() {
-                    sawAnything = true
                     self.consume(line)
                 }
-                attempt = sawAnything ? 0 : attempt + 1
+                self.currentSource = nil
+                attempt = clock.now - started >= minimumHealthyUptime ? 0 : attempt + 1
             }
         }
     }
 
     private func consume(_ line: String) {
+        let previous = state
         if let updated = decoder.consume(line: line) {
             state = updated
         } else if decoder.snapshot == nil {
+            // An empty full payload is the adapter's "nothing playing" signal.
             state = nil
         }
+        if awaitingSeekEcho, positionChanged(from: previous, to: state) {
+            releaseScrubber()
+        }
+        refreshArtwork()
+        rescheduleStaleness()
+    }
+
+    private func positionChanged(from previous: NowPlaying?, to current: NowPlaying?) -> Bool {
+        previous?.elapsedTimeMicros != current?.elapsedTimeMicros
+            || previous?.timestampEpochMicros != current?.timestampEpochMicros
+    }
+
+    /// Drives `isStale` without polling: a playing track is never stale, and a
+    /// paused one becomes stale `peekStaleness` after its last update. The
+    /// snapshot's own timestamp counts towards that, so a track that was paused
+    /// long before launch is stale straight away rather than 90 s later.
+    private func rescheduleStaleness() {
+        stalenessTask?.cancel()
+        stalenessTask = nil
+        guard let state, state.playbackRate == 0, !state.isPlaying else {
+            isStale = false
+            return
+        }
+        let age: Duration = state.timestampEpochMicros
+            .map { .microseconds(max(Self.nowMicros() - $0, 0)) } ?? .zero
+        let remaining = peekStaleness - age
+        guard remaining > .zero else {
+            isStale = true
+            return
+        }
+        isStale = false
+        stalenessTask = Task { [weak self] in
+            try? await Task.sleep(for: remaining)
+            guard !Task.isCancelled else { return }
+            self?.isStale = true
+        }
+    }
+
+    private func refreshArtwork() {
+        let data = state?.artwork?.data
+        guard data != artworkData else { return }
+        artworkData = data
+        artworkImage = data.flatMap(NSImage.init(data:))
     }
 
     private func startTicking() {
@@ -2000,7 +2445,9 @@ public final class MediaModule: NotchModule {
 import SwiftUI
 
 struct MediaPlayerView: View {
-    @Bindable var module: MediaModule
+    // A plain reference is enough: the module is `@Observable`, so reads in
+    // `body` are tracked, and the gesture closures mutate it directly.
+    let module: MediaModule
 
     var body: some View {
         if module.isDegraded && module.state == nil {
@@ -2031,7 +2478,7 @@ struct MediaPlayerView: View {
 
     private func player(_ state: NowPlaying) -> some View {
         HStack(spacing: 14) {
-            artwork(state)
+            artwork
                 .frame(width: 96, height: 96)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
@@ -2056,8 +2503,8 @@ struct MediaPlayerView: View {
     }
 
     @ViewBuilder
-    private func artwork(_ state: NowPlaying) -> some View {
-        if let data = state.artwork?.data, let image = NSImage(data: data) {
+    private var artwork: some View {
+        if let image = module.artworkImage {
             Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
         } else {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -2141,10 +2588,12 @@ import SwiftUI
 
 struct MediaPeekView: View {
     let state: NowPlaying
+    /// Decoded by the module once per distinct image; nil shows a placeholder.
+    let artwork: NSImage?
 
     var body: some View {
         HStack(spacing: 0) {
-            artwork
+            artworkView
                 .frame(width: 20, height: 20)
                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             Spacer(minLength: 0)
@@ -2155,9 +2604,9 @@ struct MediaPeekView: View {
     }
 
     @ViewBuilder
-    private var artwork: some View {
-        if let data = state.artwork?.data, let image = NSImage(data: data) {
-            Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+    private var artworkView: some View {
+        if let artwork {
+            Image(nsImage: artwork).resizable().aspectRatio(contentMode: .fill)
         } else {
             RoundedRectangle(cornerRadius: 4, style: .continuous).fill(.white.opacity(0.15))
         }
@@ -2177,7 +2626,15 @@ private struct Visualiser: View {
                     .frame(width: 3, height: height(index))
             }
         }
-        .animation(.easeInOut(duration: 0.45).repeatForever(autoreverses: true), value: phase)
+        // The repeating curve must apply only while playing: applied to the
+        // 1 → 0 change as well, it would keep the bars bouncing between the
+        // two heights forever instead of settling flat on pause.
+        .animation(
+            isAnimating
+                ? .easeInOut(duration: 0.45).repeatForever(autoreverses: true)
+                : .easeInOut(duration: 0.2),
+            value: phase
+        )
         .onAppear { phase = isAnimating ? 1 : 0 }
         .onChange(of: isAnimating) { _, playing in phase = playing ? 1 : 0 }
     }
@@ -2241,9 +2698,9 @@ This task and the next form one commit, because the branch does not build in bet
 - Modify: `Sources/NotchWindow/NotchSurface.swift`, `Sources/NotchWindow/NotchSurfaceManager.swift`
 - Modify: `README.md`
 
-- [ ] **Step 1: Thread the registry through to surfaces**
+- [x] **Step 1: Thread the registry through to surfaces**
 
-`NotchViewModel` now takes a `ModuleRegistry`. `NotchSurface.init` and `NotchSurfaceManager.init` must accept one and pass it down. Give `NotchSurfaceManager.init` a `registry: ModuleRegistry` parameter before `syntheticSize`.
+Already done as part of Task 3, to keep the branch buildable after that unit landed: `NotchSurface.init` takes `registry: ModuleRegistry` and passes it to `NotchViewModel`; `NotchSurfaceManager.init` takes `registry: ModuleRegistry` (before `syntheticSize`) and passes it to every `NotchSurface` it creates, including in `rebuild()`; `AppDelegate.applicationDidFinishLaunching` already creates `let registry = ModuleRegistry()`, stores it in a strong `private var registry: ModuleRegistry?`, and passes it to `NotchSurfaceManager`. Nothing left to do here — proceed to Step 2, which only needs to register the media module and wire `setPanelVisible`/the swipe route into the already-threaded registry.
 
 - [ ] **Step 2: Build the object graph in the delegate**
 
@@ -2283,10 +2740,40 @@ A leftward swipe moves forward, matching the natural-scrolling convention the ac
 Finally, start the media stream at launch so the peek works before the panel is ever opened:
 
 ```swift
-        media.activate()
+        media.startStreaming()
 ```
 
 Add `registry` and `media` as strong stored properties on the delegate.
+
+Stop the adapter on the way out. `applicationWillTerminate` is the last main-actor turn, so this must be synchronous — cancelling the stream task would only take effect on a turn that never comes, and an idle adapter never notices its parent is gone:
+
+```swift
+    func applicationWillTerminate(_ notification: Notification) {
+        // Synchronous on purpose: this is the last main-actor turn. The adapter
+        // subprocess is silent while nothing plays, so it would otherwise outlive
+        // the app indefinitely.
+        media?.shutdown()
+        monitor?.stop()
+    }
+```
+
+That covers the menu item, but not `SIGTERM`: AppKit installs no handler for it, so `pkill -x NotchDeck` kills the process on the spot and `applicationWillTerminate` never runs — verified, the adapter survived it exactly as it survives `SIGKILL`. Route the signal through an ordinary quit, called from `applicationDidFinishLaunching` and with the source stored on the delegate:
+
+```swift
+    /// A Cocoa app that receives SIGTERM just dies — `applicationWillTerminate`
+    /// never runs, so nothing would stop the adapter subprocess. `pkill`, `run.sh`
+    /// and logout all deliver SIGTERM. Turning it into a normal `terminate` gives
+    /// every quit path the same clean shutdown.
+    private func routeSignalsThroughTerminate() {
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler {
+            NSApp.terminate(nil)
+        }
+        source.resume()
+        termination = source
+    }
+```
 
 - [ ] **Step 3: Build and run**
 
@@ -2308,7 +2795,8 @@ Add to the manual verification checklist:
 - [ ] A two-finger horizontal swipe over the notch changes track.
 - [ ] Stopping playback entirely makes the peek disappear after the staleness window, without the panel losing the track.
 - [ ] With nothing ever played since login, the panel says "Nothing playing" rather than showing a stale track.
-- [ ] Quitting and relaunching leaves no orphaned `perl` process: `pgrep -f mediaremote-adapter` is empty.
+- [ ] Quitting cleanly — menu or `pkill -x NotchDeck` — with nothing playing leaves no orphaned `perl` process: `pgrep -f mediaremote-adapter` is empty within a couple of seconds.
+- [ ] After `kill -9` of a running instance, the orphaned `perl` survives; the next launch reaps it, and `pgrep -fl mediaremote-adapter` then shows exactly one `perl`, the new instance's.
 
 - [ ] **Step 5: Commit**
 
@@ -2323,7 +2811,7 @@ git commit -m "feat: wire the media module into the app"
 
 Two things the checklist cannot express and a human must confirm once:
 
-- **No orphaned subprocesses.** The stream is a long-lived `perl` process. Quit NotchDeck and confirm `pgrep -f mediaremote-adapter` is empty. Kill NotchDeck with `SIGKILL` and confirm the same — `continuation.onTermination` will not run, so if a process survives, the supervisor needs a `Process.terminate` on a parent-death path.
+- **No orphaned subprocesses.** *Implemented.* The stream is a long-lived `perl` process, and the concern was real: with nothing playing the adapter is silent, never gets `SIGPIPE`, and survived every kind of quit reparented to PID 1 — `continuation.onTermination` does not run on process exit. Two fixes: `applicationWillTerminate` calls `MediaModule.shutdown()`, which stops the live `PerlAdapterStream` synchronously (with `SIGTERM` routed through `NSApp.terminate`, since AppKit would otherwise die on it without running the delegate), and every launch awaits `AdapterReaper.reapOrphans(of:)` (a `pkill -f` on this bundle's escaped script path) before the probe. `SIGKILL` still leaves an orphan — nothing can run — but the next launch reaps it. Both are on the README checklist.
 - **The media-key fallback.** Rename the framework inside a built bundle so the probe fails, relaunch, and confirm the transport buttons still control playback. If they do not, synthesising media keys needs Accessibility permission on macOS 26 and the README must say so.
 
 ## Out of scope for P1a

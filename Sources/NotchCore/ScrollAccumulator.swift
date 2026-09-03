@@ -21,6 +21,11 @@ public enum ScrollPhase: Equatable, Sendable {
 /// `var` stored property and mutate it in place: copying it into a closure or
 /// passing it by value duplicates the latch, and the copy will happily report the
 /// gesture the original just suppressed.
+///
+/// Deltas follow macOS's natural-scrolling convention: fingers moving down give
+/// `deltaY > 0` (reported as `.down`), and fingers moving right give `deltaX > 0`
+/// (reported as `.right`). So a leftward two-finger swipe is `.left` — which the
+/// media module maps to the next track.
 public struct ScrollAccumulator: Sendable {
     public struct Configuration: Sendable {
         public var vertical: Double

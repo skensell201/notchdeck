@@ -34,21 +34,33 @@ Split across two targets so the orderable, persistable part stays testable witho
 @MainActor
 public protocol NotchModule: AnyObject {
     static var id: ModuleID { get }
+
     var title: String { get }
     var symbolName: String { get }
 
-    /// Called when the module becomes visible, and when it is hidden. A module
-    /// must release subprocesses, timers and pollers on `deactivate`.
+    /// Called when the module becomes visible and when it is hidden.
+    ///
+    /// `deactivate` must release everything that only the open panel needed —
+    /// timers, pollers, capture sessions. A module that feeds `peekView()` keeps
+    /// that one source running, because the collapsed notch still shows it; the
+    /// media module is the example, and it stops only its redraw tick.
     func activate()
     func deactivate()
 
-    /// The module's content in the expanded panel.
     func expandedView() -> AnyView
 
     /// A compact representation for the collapsed notch, or nil when the module
-    /// has nothing live to show. Media returns artwork and a visualiser while a
-    /// track plays; the shelf returns nil.
+    /// has nothing live to show.
     func peekView() -> AnyView?
+
+    /// True when `peekView()` would return content. Must be cheap and must be
+    /// backed by observable state, because the shell reads it on every layout
+    /// pass to decide how wide the collapsed notch is.
+    var hasLiveContent: Bool { get }
+}
+
+public extension NotchModule {
+    var id: ModuleID { Self.id }
 }
 ```
 
@@ -58,7 +70,7 @@ public protocol NotchModule: AnyObject {
 
 Modules are app-level singletons; their views are instantiated per surface. Module state must therefore be observable and shared, never owned by a view.
 
-The `peek` mode P0 already implements is now fed by modules: when the media module has a playing track and the notch is collapsed, the shell shows its `peekView()`.
+The collapsed notch widens to the peek band whenever `registry.hasLiveContent` is true, and the shell shows the registry's `peekView()`. The state machine stays in `.closed` for this — it never transitions to `.peek`. `.peek` remains the timed mode P3 reserves for live activities (charging, volume), which are entered by an event and expire on their own; a playing track is not an event with a duration, so widening the collapsed notch is driven by content, not by mode.
 
 ---
 
@@ -75,12 +87,12 @@ A throwaway spike built `ungive/mediaremote-adapter` v0.7.6 (BSD 3-Clause, commi
 | The framework must carry a code signature or `dlopen` fails. Ad-hoc is sufficient, and `codesign --deep` over the app re-signs the nested framework. The app's own identity is irrelevant — `perl` loads the dylib, not us. | Bundling works under the existing ad-hoc signing story. Never strip the signature. |
 | Absolute paths are mandatory; a relative framework path fails at load with exit 1. The `.pl` derives the dylib name from the directory basename, so `X.framework` must contain `X`. | Resolve paths from `Bundle.main` at runtime; never rename the framework directory alone. |
 | `stream` emits NDJSON: `{"type":"data","diff":Bool,"payload":{…}}`. First line is a priming empty payload, second is a full snapshot, everything after carries only changed keys. A key that vanished arrives as an explicit `null`. | The client must merge diffs into a running snapshot, and treat explicit null as removal. |
-| Artwork is base64 in `artworkData` with `artworkMimeType`, present only in the full snapshot and often late. Both keys absent when unavailable. | Decode once, cache by content identifier, and render an empty state until it arrives. |
+| Artwork is base64 in `artworkData` with `artworkMimeType`, present only in the full snapshot and often late. Both keys absent when unavailable. | Decode once and cache by the artwork bytes — the content identifier changes on every pause and resume while the artwork does not — and render an empty state until it arrives. |
 | `elapsedTime` never ticks; it is the position as of `timestamp`. On resume the framework restamps `timestamp` **without** resending `elapsedTime`. | Position is `elapsedTime + (now − timestamp) × playbackRate`, driven by `playbackRate` (0 when paused), not the `playing` flag. |
 | One logical change arrives as two lines 10–20 ms apart — the `playing` flag, then rate/elapsed/timestamp. | Run the stream with `--debounce=50`, and coalesce anyway. |
 | Zero output when nothing changes — no heartbeat, no keepalive, 0 % CPU. | Liveness must be our own concern; silence is indistinguishable from a wedged process. |
 | There is no "stopped" event. After playback ends the last track persists indefinitely with `playing:false` and a frozen position. | We need our own staleness policy. |
-| The key set is sparse and player-dependent. Only `bundleIdentifier`, `playing` and `title` are dependable; the whole output can be the literal `null` with exit 0. | Every other field is optional in the model. `null` is a valid, expected snapshot meaning "nothing known". |
+| The key set is sparse and player-dependent. Only `title` and `playing` are dependable — the adapter's own mandatory-key list (`keys.m`) is `processIdentifier`, `title`, `playing`. `bundleIdentifier` is absent whenever the now-playing process doesn't resolve to an `NSRunningApplication` with a bundle id, which happens for CLI players such as `mpv` even while genuinely playing; the whole output can also be the literal `null` with exit 0. | Every other field, `bundleIdentifier` included, is optional in the model. `null` is a valid, expected snapshot meaning "nothing known". |
 | `--micros` replaces the ISO-8601 timestamp with integer epoch microseconds. | Use it. Parsing an integer cannot fail the way a date format can. |
 | Commands are one-shot processes, ~18 ms: `send <id>` (0 play, 1 pause, 2 toggle, 4 next, 5 previous) and `seek <microseconds>`. | No long-lived command channel; spawn per command. |
 | `test` exits 0 on success and prints nothing. | Use it as a capability probe at launch, and degrade deliberately when it fails. |
@@ -95,16 +107,22 @@ The `MediaRemoteAdapterTestClient` is bundled too, because it is what makes `tes
 
 - `MediaAdapterProcess` — spawns and supervises the `stream` subprocess, exposes an `AsyncStream` of raw payload lines, restarts with backoff on exit. Behind a protocol so tests never spawn anything.
 - `NowPlayingDecoder` — pure. Merges the diff protocol into a running `NowPlaying` snapshot: full snapshots replace, diffs merge, explicit nulls remove, the priming empty payload is ignored, and a literal `null` document clears everything. This is where the sparse schema is absorbed, and it is the most heavily tested piece in the phase.
-- `NowPlaying` — the model. Only `bundleIdentifier`, `isPlaying` and `title` are non-optional.
+- `NowPlaying` — the model. Only `isPlaying` and `title` are non-optional; `bundleIdentifier` is absent for players without a resolvable bundle.
 - `PlaybackPosition` — pure. `position(at:)` implements the interpolation rule, clamped to `duration` when known.
 - `MediaCommands` — sends `send`/`seek` through the adapter, falling back to HID media keys when the adapter is unavailable.
 - `MediaModule` — the `NotchModule`, owning the above and publishing state to views.
 
+**Lifecycle:** the `stream` subprocess must not outlive the app, and nothing does that for free. While a track plays the adapter writes constantly and dies of `SIGPIPE` the moment its parent is gone; idle, it writes nothing — the adapter's "zero output when nothing changes" — so it never notices and survives reparented to launchd indefinitely. `AsyncStream`'s `onTermination` does not help either: it fires only when the stream finishes or the consuming task is cancelled, and a process exit does neither.
+
+Starting the stream and activating the module are deliberately separate. `MediaModule.startStreaming()` starts only the adapter stream and is idempotent; the app calls it once at launch, before the panel is ever opened, so the collapsed peek has something to show from the start. `activate()` calls `startStreaming()` and additionally starts the once-a-second redraw tick that advances the scrubber — the registry calls it only while the panel is open, and `deactivate()` stops the tick alone, leaving the stream running for the peek.
+
+The shutdown has two halves. Graceful exits reach `applicationWillTerminate`, which calls `MediaModule.shutdown()`: it cancels the stream, tick and staleness tasks and calls `stop()` on the live `PerlAdapterStream` synchronously, because that delegate callback is the last main-actor turn and a mere task cancellation would only take effect on a turn that never comes. A menu quit gets there on its own; `SIGTERM` does not — AppKit installs no handler, so the default disposition kills the process before any delegate method runs, exactly like `SIGKILL`. The delegate therefore installs a `DispatchSource` signal source that turns `SIGTERM` into `NSApp.terminate`, so `pkill -x NotchDeck` and a launchd stop take the graceful path too. That handler still runs on the main queue, though: a wedged main thread never dispatches it, so `SIGTERM` against a hung instance does nothing and only `SIGKILL` actually ends it. Ungraceful exits — `SIGKILL`, a crash, or a `SIGTERM` a wedged main thread never got to handle — cannot run anything, so every launch first awaits `AdapterReaper.reapOrphans(of:)` before the probe: a `pkill -f` on the bundle's own absolute script path (regex-escaped), which matches only adapters started from *this* bundle and leaves other apps' copies alone. Exit 0 (killed something) and 1 (nothing matched) are both success; anything else is logged and ignored, since the worst outcome is the orphan we already had.
+
 ### 3.4 Behaviour
 
-**Expanded view:** artwork (or a placeholder), title and artist, the source app's icon, a draggable scrubber with elapsed and remaining time, and previous / play-pause / next. Scrubbing seeks on release, not continuously.
+**Expanded view:** artwork (or a placeholder), title, artist or album, a draggable scrubber, and previous / play-pause / next. Scrubbing seeks on release, not continuously. The source app's icon and elapsed/remaining time labels are deferred to P4 polish.
 
-**Peek view:** artwork thumbnail on one side of the notch and an animated level indicator on the other — the shape P0's `peek` mode already reserves. Shown when a track is playing and the notch is collapsed.
+**Peek view:** artwork thumbnail on one side of the notch and an animated level indicator on the other — the same band shape P0's `peek` mode draws, but reached differently. `NotchModule` exposes an observable `hasLiveContent` predicate; `ModuleRegistry.hasLiveContent` is true when any visible module offers content. While the notch is `.closed` and that is true, `NotchViewModel.targetSize` returns the peek band's size and `NotchShellView` renders the registry's `peekView` — the hover region follows, because it derives from `targetSize`. The state machine never leaves `.closed` for this. `.peek(PeekPayload)` is the *timed* live-activity mode reserved for P3 (charging, volume): it is entered by a `.liveActivity` event and expires on its own. A playing track is not an event with a duration; it is live content that persists for as long as the module offers it, so faking it through `.liveActivity` would either time out under a playing track or need constant re-sending. The media module reports `hasLiveContent` as "a track is known and not stale".
 
 **Gestures:** P0's accumulator already classifies horizontal swipes into `.left` and `.right`, which the notch reducer deliberately ignores. `NotchEventMonitor` gains a second callback for horizontal swipes over a surface, which the app forwards to the media module as next/previous. The notch state machine stays about the notch.
 

@@ -3,7 +3,8 @@
 A macOS utility surface built into the MacBook notch — and onto a synthetic notch
 on displays that do not have one.
 
-Design: [`docs/superpowers/specs/2026-09-02-notchdeck-design.md`](docs/superpowers/specs/2026-09-02-notchdeck-design.md)
+Design: [`docs/superpowers/specs/2026-09-02-notchdeck-design.md`](docs/superpowers/specs/2026-09-02-notchdeck-design.md),
+[`docs/superpowers/specs/2026-09-02-p1-media-and-shelf-design.md`](docs/superpowers/specs/2026-09-02-p1-media-and-shelf-design.md)
 
 ## Requirements
 
@@ -30,8 +31,11 @@ swift test          # unit tests
 ./Scripts/run.sh    # build, bundle, sign, launch
 ```
 
-NotchDeck is an accessory app with no Dock icon and no window to close from; the
-menu bar item's "Quit NotchDeck" is the only way to quit it.
+NotchDeck is an accessory app with no Dock icon and no window to close from. The
+menu bar item's "Quit NotchDeck" quits it; `pkill -x NotchDeck` is equivalent,
+since `SIGTERM` is routed through the same clean shutdown. A wedged app ignores
+`SIGTERM` and needs `kill -9`, after which the next launch reaps the orphaned
+adapter subprocess.
 
 ## Manual verification
 
@@ -59,6 +63,20 @@ rendering or windowing:
 - [ ] On a light wallpaper the expanded panel has a clear edge and does not look pasted on.
 - [ ] No glow or bright line appears above the panel, across the menu bar or the bezel.
 - [ ] Clicks still pass through the reserved margin around the panel — the bloom must not swallow them.
+- [ ] With music playing in any app — Music, Spotify, a browser tab — the collapsed notch shows its artwork and an animated indicator.
+- [ ] Opening the notch shows the track's artwork, title and artist, a scrubber that advances once a second, and working previous / play-pause / next.
+- [ ] Dragging the scrubber seeks the track on release.
+- [ ] Pausing in the source app is reflected within a second, and the visualiser rests.
+- [ ] A two-finger horizontal swipe over the notch changes track.
+- [ ] Stopping playback entirely makes the peek disappear after the staleness window, without the panel losing the track.
+- [ ] With nothing ever played since login, the panel says "Nothing playing" rather than showing a stale track.
+- [ ] Quitting cleanly — menu or `pkill -x NotchDeck` — with nothing playing leaves no orphaned `perl` process: `pgrep -f mediaremote-adapter` is empty within a couple of seconds.
+- [ ] After `kill -9` of a running instance, the orphaned `perl` survives; the next launch reaps it, and `pgrep -fl mediaremote-adapter` then shows exactly one `perl`, the new instance's.
+- [ ] Hovering the widened peek band (not just the bare notch) opens the panel.
+- [ ] With a track playing, `kill -9` the `perl` adapter process (not the app); the peek recovers within a few seconds.
+- [ ] Launching with a track that has been paused for more than 90 s shows no peek; the expanded panel still shows the track.
+- [ ] A two-finger swipe **left** over the notch skips to the next track; right goes to the previous one.
+- [ ] Media-key fallback: rename `Contents/Frameworks/MediaRemoteAdapter.framework` inside a built bundle so the probe fails, relaunch, and confirm the transport buttons still control playback. If they do not, note that synthesising media keys needs Accessibility permission on this macOS.
 
 ## Layout
 
@@ -67,5 +85,46 @@ rendering or windowing:
 | `NotchCore` | State machine, gestures, geometry — pure Swift, fully unit-tested |
 | `NotchUI` | SwiftUI shell and the notch shape |
 | `NotchWindow` | `NSPanel` surfaces, screen adapters, event monitors |
+| `Media` | The now-playing module: adapter subprocess, decoder, transport commands, expanded player and peek views |
 | `NotchDeckApp` | Entry point, menu bar item, wiring |
 | `Support` | Shared logging |
+
+## Acknowledgements
+
+Now-playing state comes from [`ungive/mediaremote-adapter`](https://github.com/ungive/mediaremote-adapter)
+v0.7.6 (commit `3ac3d4b`), vendored as source under
+[`ThirdParty/mediaremote-adapter/`](ThirdParty/mediaremote-adapter/) and built by
+`Scripts/build-media-adapter.sh` into the `MediaRemoteAdapter.framework` and
+`MediaRemoteAdapterTestClient` that ship inside the app bundle. It is licensed
+under the BSD 3-Clause License; the full text is in
+[`ThirdParty/mediaremote-adapter/LICENSE`](ThirdParty/mediaremote-adapter/LICENSE)
+and is reproduced here as that license requires:
+
+> BSD 3-Clause License
+>
+> Copyright (c) 2025, Jonas van den Berg and contributors
+>
+> Redistribution and use in source and binary forms, with or without
+> modification, are permitted provided that the following conditions are met:
+>
+> 1. Redistributions of source code must retain the above copyright notice, this
+>    list of conditions and the following disclaimer.
+>
+> 2. Redistributions in binary form must reproduce the above copyright notice,
+>    this list of conditions and the following disclaimer in the documentation
+>    and/or other materials provided with the distribution.
+>
+> 3. Neither the name of the copyright holder nor the names of its
+>    contributors may be used to endorse or promote products derived from
+>    this software without specific prior written permission.
+>
+> THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+> AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+> IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+> DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+> FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+> DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+> SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+> CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+> OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+> OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

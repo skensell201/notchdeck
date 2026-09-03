@@ -6,14 +6,20 @@ import NotchCore
 public final class NotchEventMonitor {
     private let surfaces: NotchSurfaceManager
     private let send: (NotchEvent) -> Void
+    private let onHorizontalSwipe: (ScrollDirection) -> Void
 
     private var accumulator = ScrollAccumulator()
     private var pointerIsInside = false
     private var monitors: [Any] = []
 
-    public init(surfaces: NotchSurfaceManager, send: @escaping (NotchEvent) -> Void) {
+    public init(
+        surfaces: NotchSurfaceManager,
+        send: @escaping (NotchEvent) -> Void,
+        onHorizontalSwipe: @escaping (ScrollDirection) -> Void
+    ) {
         self.surfaces = surfaces
         self.send = send
+        self.onHorizontalSwipe = onHorizontalSwipe
     }
 
     public func start() {
@@ -86,7 +92,14 @@ public final class NotchEventMonitor {
             timestamp: event.timestamp
         ) else { return }
 
-        send(.scrolled(direction))
+        switch direction {
+        case .down, .up:
+            send(.scrolled(direction))
+        case .left, .right:
+            // Track changes are the media module's business; the notch state
+            // machine has nothing to say about them.
+            onHorizontalSwipe(direction)
+        }
     }
 
     private func handleClick(at location: CGPoint) {
