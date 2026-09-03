@@ -33,14 +33,14 @@ struct MediaPlayerView: View {
     }
 
     private func player(_ state: NowPlaying) -> some View {
-        HStack(spacing: 14) {
+        HStack(alignment: .top, spacing: 14) {
             artwork
-                .frame(width: 96, height: 96)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(width: Self.artworkSide, height: Self.artworkSide)
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(state.title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Text(state.artist ?? state.album ?? "")
@@ -48,14 +48,46 @@ struct MediaPlayerView: View {
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
 
-                scrubber
+                Spacer(minLength: 2)
+
+                timeline
 
                 transport
-                    .padding(.top, 2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 4)
             }
-            Spacer(minLength: 0)
+            .frame(height: Self.artworkSide)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .padding(.top, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private static let artworkSide: CGFloat = 84
+
+    /// Elapsed, scrubber, remaining — one row, so the bar has labels at both ends
+    /// instead of a bare line with nothing to anchor it.
+    @ViewBuilder
+    private var timeline: some View {
+        // `positionTick` is read so the once-a-second tick redraws the row.
+        let _ = module.positionTick
+        HStack(spacing: 8) {
+            timeLabel(module.positionMicros)
+            scrubber
+            timeLabel(module.remainingMicros, negative: true)
+        }
+    }
+
+    private func timeLabel(_ micros: Int64?, negative: Bool = false) -> some View {
+        Text(Self.format(micros, negative: negative))
+            .font(.system(size: 10).monospacedDigit())
+            .foregroundStyle(.white.opacity(0.5))
+            .frame(width: 36, alignment: negative ? .trailing : .leading)
+    }
+
+    private static func format(_ micros: Int64?, negative: Bool) -> String {
+        guard let micros else { return "–:––" }
+        let seconds = Int(micros / 1_000_000)
+        return "\(negative ? "-" : "")\(seconds / 60):\(String(format: "%02d", seconds % 60))"
     }
 
     @ViewBuilder
@@ -72,8 +104,6 @@ struct MediaPlayerView: View {
     @ViewBuilder
     private var scrubber: some View {
         if let progress = module.progress {
-            // `positionTick` is read so the once-a-second tick redraws the bar.
-            let _ = module.positionTick
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.15))
@@ -92,6 +122,8 @@ struct MediaPlayerView: View {
                 )
             }
             .frame(height: 4)
+        } else {
+            Capsule().fill(.white.opacity(0.15)).frame(height: 4)
         }
     }
 

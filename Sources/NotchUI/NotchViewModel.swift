@@ -27,7 +27,7 @@ public final class NotchViewModel {
     public init(
         registry: ModuleRegistry,
         metrics: NotchMetrics,
-        openSize: CGSize = CGSize(width: 620, height: 200),
+        openSize: CGSize = CGSize(width: 620, height: 150),
         peekSideWidth: CGFloat = 140,
         closedFlare: CGFloat = 8,
         appearance: NotchAppearance = NotchAppearance()

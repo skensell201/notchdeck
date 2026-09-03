@@ -25,11 +25,15 @@ public enum NotchResolver {
            right.minX > left.maxX {
             // Every edge comes from the auxiliary rects, which are self-consistent;
             // `topSafeAreaInset` is only the signal that a notch exists at all.
+            // The housing is as tall as the menu bar, which can exceed the
+            // auxiliary areas' height by a point; size to whichever is taller so
+            // no sliver of housing shows beneath the surface.
+            let height = max(left.height, screen.menuBarHeight)
             let rect = CGRect(
                 x: left.maxX,
-                y: left.minY,
+                y: screen.frame.maxY - height,
                 width: right.minX - left.maxX,
-                height: left.height
+                height: height
             )
             return NotchMetrics(rect: rect, kind: .physical)
         }

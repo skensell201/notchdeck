@@ -162,6 +162,11 @@ public final class MediaModule: NotchModule {
         return PlaybackPosition.progress(of: state, atEpochMicros: Self.nowMicros())
     }
 
+    public var remainingMicros: Int64? {
+        guard let duration = state?.durationMicros, let position = positionMicros else { return nil }
+        return max(duration - position, 0)
+    }
+
     public var positionMicros: Int64? {
         guard let state else { return nil }
         return PlaybackPosition.micros(of: state, atEpochMicros: Self.nowMicros())

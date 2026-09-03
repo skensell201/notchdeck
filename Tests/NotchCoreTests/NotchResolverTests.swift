@@ -24,6 +24,26 @@ struct NotchResolverTests {
         #expect(metrics.rect == CGRect(x: 641, y: 950, width: 230, height: 32))
     }
 
+    @Test("a menu bar taller than the safe area inset stretches the physical notch to match")
+    func housingFollowsTheMenuBar() {
+        // Measured on a 14-inch MacBook Pro: safeAreaInsets.top is 32 but the
+        // menu bar band is 33, and the camera housing is as tall as the latter.
+        var screen = builtIn
+        screen.menuBarHeight = 33
+
+        let metrics = NotchResolver.resolve(screen: screen, syntheticSize: syntheticSize)
+
+        #expect(metrics.rect == CGRect(x: 641, y: 949, width: 230, height: 33))
+    }
+
+    @Test("a hidden menu bar does not shrink the physical notch below the auxiliary areas")
+    func hiddenMenuBarKeepsAuxiliaryHeight() {
+        var screen = builtIn
+        screen.menuBarHeight = 0
+
+        #expect(NotchResolver.resolve(screen: screen, syntheticSize: syntheticSize).rect.height == 32)
+    }
+
     @Test("a notchless display yields a synthetic notch centred at its top edge")
     func syntheticNotch() {
         let external = ScreenDescription(
