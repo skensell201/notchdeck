@@ -24,9 +24,15 @@ public final class ClipboardModule: NotchModule {
     public init(
         store: ClipboardStore? = nil,
         pasteboard: any PasteboardWatching = SystemPasteboard(),
-        interval: Duration = .milliseconds(400)
+        interval: Duration = .milliseconds(400),
+        capacity: Int = 60,
+        excludedBundleIdentifiers: Set<String> = []
     ) {
-        self.store = store ?? ClipboardStore(persistence: DiskClipboardPersistence.inApplicationSupport())
+        self.store = store ?? ClipboardStore(
+            persistence: DiskClipboardPersistence.inApplicationSupport(),
+            capacity: capacity,
+            excludedBundleIdentifiers: excludedBundleIdentifiers
+        )
         self.pasteboard = pasteboard
         self.interval = interval
         self.lastChangeCount = pasteboard.changeCount

@@ -25,6 +25,16 @@ public final class Preferences {
         public static let clipboardExclusions = "ClipboardExcludedBundleIdentifiers"
     }
 
+    /// The ranges the setters clamp to, published so a slider's track ends where
+    /// the value actually stops. A control that runs past its own limit is a lie.
+    public enum Range {
+        public static let hoverDwellMilliseconds = 60...1000
+        public static let exitGraceMilliseconds = 0...2000
+        public static let syntheticNotchWidth = 120.0...600.0
+        public static let syntheticNotchHeight = 20.0...60.0
+        public static let clipboardCapacity = 5...500
+    }
+
     private let defaults: UserDefaults
     private let logger = Log.make("preferences")
 

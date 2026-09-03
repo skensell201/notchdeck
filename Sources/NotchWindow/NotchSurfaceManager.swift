@@ -8,7 +8,15 @@ import Support
 public final class NotchSurfaceManager {
     private let logger = Log.make("surfaces")
     private let registry: ModuleRegistry
-    private let syntheticSize: CGSize
+    /// Settable so the Notch tab previews on the displays it affects. Changing it
+    /// re-resolves every surface, which is exactly what a display reconfiguration
+    /// does, so the path is already exercised.
+    public var syntheticSize: CGSize {
+        didSet {
+            guard syntheticSize != oldValue else { return }
+            rebuild()
+        }
+    }
     private var surfaces: [CGDirectDisplayID: NotchSurface] = [:]
     private var observer: NSObjectProtocol?
     private var mode: NotchMode = .closed

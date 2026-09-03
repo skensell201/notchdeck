@@ -39,6 +39,8 @@ An ordinary `NSWindow` — not the notch. Four tabs:
 - **General** — launch at login, replace the system volume overlay, hover dwell and exit grace.
 - **Modules** — every registered module with a checkbox and a drag handle, in layout order. Disabling the last enabled module is allowed; the panel then says so rather than showing an empty frame.
 - **Notch** — synthetic notch size for displays without one, previewed live on those displays.
+Clipboard capacity and exclusions are read from preferences at launch but have no control in the window yet: they are the two settings a person changes once, if ever, and every tab that fits already has a better use for the room. `defaults write` reaches them until a tab earns the space.
+
 - **Permissions** — the status of camera and calendar access, and a button to the right System Settings pane. Read-only: an app cannot revoke its own grants, and pretending otherwise would be a lie.
 
 The window is the only part of NotchDeck that activates the app, so it is also the only place ordinary keyboard input works.
