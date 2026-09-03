@@ -109,3 +109,75 @@ struct PreferencesTests {
         #expect(preferences.clipboardExclusions.count == 2)
     }
 }
+
+/// `withObservationTracking`'s onChange runs off the main actor, so the flag it
+/// sets cannot be a captured local.
+private final class ChangeFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func mark() { lock.withLock { value = true } }
+    var wasNotified: Bool { lock.withLock { value } }
+}
+
+@MainActor
+@Suite("Preferences observation")
+struct PreferencesObservationTests {
+    /// The bug this guards: the values used to be computed straight over
+    /// `UserDefaults`, which `@Observable` cannot instrument, so a slider bound to
+    /// one moved, wrote, and never saw its own label update.
+    @Test("changing a value notifies an observer")
+    func writingNotifies() async {
+        let preferences = Preferences(defaults: UserDefaults(suiteName: "notchdeck.tests.\(UUID().uuidString)")!)
+        let notified = ChangeFlag()
+
+        withObservationTracking {
+            _ = preferences.hoverDwellMilliseconds
+        } onChange: {
+            notified.mark()
+        }
+
+        preferences.hoverDwellMilliseconds = 400
+        await Task.yield()
+
+        #expect(notified.wasNotified)
+    }
+
+    @Test("a clamped write still notifies, so the control snaps back visibly")
+    func clampedWriteNotifies() async {
+        let preferences = Preferences(defaults: UserDefaults(suiteName: "notchdeck.tests.\(UUID().uuidString)")!)
+        let notified = ChangeFlag()
+
+        withObservationTracking {
+            _ = preferences.syntheticNotchSize
+        } onChange: {
+            notified.mark()
+        }
+
+        preferences.syntheticNotchSize = CGSize(width: 9000, height: 900)
+        await Task.yield()
+
+        #expect(notified.wasNotified)
+        #expect(preferences.syntheticNotchSize.width == 600)
+    }
+
+    @Test("values written by one instance are read by the next, so they outlive a launch")
+    func valuesPersistAcrossInstances() {
+        let suite = UserDefaults(suiteName: "notchdeck.tests.\(UUID().uuidString)")!
+        let first = Preferences(defaults: suite)
+
+        first.hoverDwellMilliseconds = 320
+        first.exitGraceMilliseconds = 90
+        first.syntheticNotchSize = CGSize(width: 300, height: 40)
+        first.suppressVolumeHUD = true
+        first.clipboardCapacity = 25
+
+        let second = Preferences(defaults: suite)
+
+        #expect(second.hoverDwellMilliseconds == 320)
+        #expect(second.exitGraceMilliseconds == 90)
+        #expect(second.syntheticNotchSize == CGSize(width: 300, height: 40))
+        #expect(second.suppressVolumeHUD)
+        #expect(second.clipboardCapacity == 25)
+    }
+}

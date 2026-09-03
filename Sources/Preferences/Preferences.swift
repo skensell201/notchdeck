@@ -6,10 +6,15 @@ import Support
 
 /// Everything the user can change, over `UserDefaults`.
 ///
+/// The values are held in memory and written through on change, rather than read
+/// from `UserDefaults` on every access. That is not an optimisation: `@Observable`
+/// instruments stored properties, so a computed property over `UserDefaults` is
+/// invisible to SwiftUI — a control bound to one moves, writes, and never sees its
+/// own label update.
+///
 /// Every default matches the constant it replaced, so an install that never opens
-/// the settings window behaves exactly as it did before there was one. Writes
-/// apply immediately: each of these is cheap to change and instantly visible, and
-/// an Apply button would only add a state the user has to reason about.
+/// the settings window behaves exactly as it did before there was one. Values that
+/// can be set to something unusable are clamped on the way in.
 @MainActor
 @Observable
 public final class Preferences {
@@ -35,26 +40,51 @@ public final class Preferences {
         public static let clipboardCapacity = 5...500
     }
 
-    private let defaults: UserDefaults
-    private let logger = Log.make("preferences")
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let logger = Log.make("preferences")
+
+    private var storedLayout: ModuleLayout
+    private var storedNotchWidth: Double
+    private var storedNotchHeight: Double
+    private var storedHoverDwell: Int
+    private var storedExitGrace: Int
+    private var storedSuppressVolumeHUD: Bool
+    private var storedDismissWithEscape: Bool
+    private var storedClipboardCapacity: Int
+    private var storedClipboardExclusions: [String]
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+
+        if let data = defaults.data(forKey: Key.moduleLayout) {
+            do {
+                storedLayout = try JSONDecoder().decode(ModuleLayout.self, from: data)
+            } catch {
+                Log.make("preferences").error(
+                    "discarding an unreadable module layout: \(error.localizedDescription, privacy: .public)"
+                )
+                storedLayout = ModuleLayout()
+            }
+        } else {
+            storedLayout = ModuleLayout()
+        }
+
+        storedNotchWidth = Self.clamp(defaults.object(forKey: Key.syntheticNotchWidth) as? Double ?? 220, Range.syntheticNotchWidth)
+        storedNotchHeight = Self.clamp(defaults.object(forKey: Key.syntheticNotchHeight) as? Double ?? 32, Range.syntheticNotchHeight)
+        storedHoverDwell = Self.clamp(defaults.object(forKey: Key.hoverDwellMilliseconds) as? Int ?? 180, Range.hoverDwellMilliseconds)
+        storedExitGrace = Self.clamp(defaults.object(forKey: Key.exitGraceMilliseconds) as? Int ?? 220, Range.exitGraceMilliseconds)
+        storedSuppressVolumeHUD = defaults.bool(forKey: Key.suppressVolumeHUD)
+        storedDismissWithEscape = defaults.bool(forKey: Key.dismissWithEscape)
+        storedClipboardCapacity = Self.clamp(defaults.object(forKey: Key.clipboardCapacity) as? Int ?? 60, Range.clipboardCapacity)
+        storedClipboardExclusions = defaults.stringArray(forKey: Key.clipboardExclusions) ?? []
     }
 
     // MARK: Modules
 
     public var moduleLayout: ModuleLayout {
-        get {
-            guard let data = defaults.data(forKey: Key.moduleLayout) else { return ModuleLayout() }
-            do {
-                return try JSONDecoder().decode(ModuleLayout.self, from: data)
-            } catch {
-                logger.error("discarding an unreadable module layout: \(error.localizedDescription, privacy: .public)")
-                return ModuleLayout()
-            }
-        }
+        get { storedLayout }
         set {
+            storedLayout = newValue
             guard let data = try? JSONEncoder().encode(newValue) else { return }
             defaults.set(data, forKey: Key.moduleLayout)
         }
@@ -62,64 +92,82 @@ public final class Preferences {
 
     // MARK: Notch
 
-    /// Clamped to something a notch can actually be: too small to hit, or wider
-    /// than a display, are both worse than a default.
     public var syntheticNotchSize: CGSize {
-        get {
-            let width = defaults.object(forKey: Key.syntheticNotchWidth) as? Double ?? 220
-            let height = defaults.object(forKey: Key.syntheticNotchHeight) as? Double ?? 32
-            return CGSize(width: Self.clamp(width, 120, 600), height: Self.clamp(height, 20, 60))
-        }
+        get { CGSize(width: storedNotchWidth, height: storedNotchHeight) }
         set {
-            defaults.set(Self.clamp(newValue.width, 120, 600), forKey: Key.syntheticNotchWidth)
-            defaults.set(Self.clamp(newValue.height, 20, 60), forKey: Key.syntheticNotchHeight)
+            storedNotchWidth = Self.clamp(newValue.width, Range.syntheticNotchWidth)
+            storedNotchHeight = Self.clamp(newValue.height, Range.syntheticNotchHeight)
+            defaults.set(storedNotchWidth, forKey: Key.syntheticNotchWidth)
+            defaults.set(storedNotchHeight, forKey: Key.syntheticNotchHeight)
         }
     }
 
     public var timing: NotchTiming {
         NotchTiming(
-            hoverDwell: .milliseconds(hoverDwellMilliseconds),
-            exitGrace: .milliseconds(exitGraceMilliseconds)
+            hoverDwell: .milliseconds(storedHoverDwell),
+            exitGrace: .milliseconds(storedExitGrace)
         )
     }
 
     /// A dwell of zero opens the notch on any pointer that crosses it; anything
     /// beyond a second feels broken. Both ends are worth refusing.
     public var hoverDwellMilliseconds: Int {
-        get { Int(Self.clamp(Double(defaults.object(forKey: Key.hoverDwellMilliseconds) as? Int ?? 180), 60, 1000)) }
-        set { defaults.set(Int(Self.clamp(Double(newValue), 60, 1000)), forKey: Key.hoverDwellMilliseconds) }
+        get { storedHoverDwell }
+        set {
+            storedHoverDwell = Self.clamp(newValue, Range.hoverDwellMilliseconds)
+            defaults.set(storedHoverDwell, forKey: Key.hoverDwellMilliseconds)
+        }
     }
 
     public var exitGraceMilliseconds: Int {
-        get { Int(Self.clamp(Double(defaults.object(forKey: Key.exitGraceMilliseconds) as? Int ?? 220), 0, 2000)) }
-        set { defaults.set(Int(Self.clamp(Double(newValue), 0, 2000)), forKey: Key.exitGraceMilliseconds) }
+        get { storedExitGrace }
+        set {
+            storedExitGrace = Self.clamp(newValue, Range.exitGraceMilliseconds)
+            defaults.set(storedExitGrace, forKey: Key.exitGraceMilliseconds)
+        }
     }
 
     // MARK: Behaviour
 
     public var suppressVolumeHUD: Bool {
-        get { defaults.bool(forKey: Key.suppressVolumeHUD) }
-        set { defaults.set(newValue, forKey: Key.suppressVolumeHUD) }
+        get { storedSuppressVolumeHUD }
+        set {
+            storedSuppressVolumeHUD = newValue
+            defaults.set(newValue, forKey: Key.suppressVolumeHUD)
+        }
     }
 
     public var dismissWithEscape: Bool {
-        get { defaults.bool(forKey: Key.dismissWithEscape) }
-        set { defaults.set(newValue, forKey: Key.dismissWithEscape) }
+        get { storedDismissWithEscape }
+        set {
+            storedDismissWithEscape = newValue
+            defaults.set(newValue, forKey: Key.dismissWithEscape)
+        }
     }
 
     // MARK: Clipboard
 
     public var clipboardCapacity: Int {
-        get { Int(Self.clamp(Double(defaults.object(forKey: Key.clipboardCapacity) as? Int ?? 60), 5, 500)) }
-        set { defaults.set(Int(Self.clamp(Double(newValue), 5, 500)), forKey: Key.clipboardCapacity) }
+        get { storedClipboardCapacity }
+        set {
+            storedClipboardCapacity = Self.clamp(newValue, Range.clipboardCapacity)
+            defaults.set(storedClipboardCapacity, forKey: Key.clipboardCapacity)
+        }
     }
 
     public var clipboardExclusions: [String] {
-        get { defaults.stringArray(forKey: Key.clipboardExclusions) ?? [] }
-        set { defaults.set(newValue, forKey: Key.clipboardExclusions) }
+        get { storedClipboardExclusions }
+        set {
+            storedClipboardExclusions = newValue
+            defaults.set(newValue, forKey: Key.clipboardExclusions)
+        }
     }
 
-    private static func clamp(_ value: Double, _ lower: Double, _ upper: Double) -> Double {
-        min(max(value, lower), upper)
+    private static func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {
+        min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    private static func clamp(_ value: Int, _ range: ClosedRange<Int>) -> Int {
+        min(max(value, range.lowerBound), range.upperBound)
     }
 }
