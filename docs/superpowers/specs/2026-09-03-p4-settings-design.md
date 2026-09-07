@@ -57,7 +57,7 @@ P0 built `.escapePressed` into the state machine and never wired it, because a g
 
 `Scripts/make-dmg.sh` builds the release configuration, assembles the bundle, signs it with whatever identity exists, and produces a compressed disk image with an `/Applications` symlink.
 
-Not notarized: notarization needs a paid Developer ID, and the vendored MediaRemote adapter's whole technique is an end-run around a private framework, so the App Store is not a destination either. The README says plainly that a first launch needs a right-click and Open.
+Not notarized: notarization needs a paid Developer ID, and the vendored MediaRemote adapter's whole technique is an end-run around a private framework, so the App Store is not a destination either. The README says plainly how to get a first launch past Gatekeeper.
 
 ## 7. Testing
 
