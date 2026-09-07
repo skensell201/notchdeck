@@ -4,7 +4,7 @@
 # The image is not notarized: notarization needs a paid Developer ID, and the
 # vendored MediaRemote adapter's whole technique is an end-run around a private
 # framework, so the App Store was never a destination either. A first launch
-# needs a right-click and Open; the README says so.
+# needs clearing Gatekeeper by hand; the README says how.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

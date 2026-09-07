@@ -38,6 +38,7 @@ let package = Package(
         .testTarget(name: "StatsTests", dependencies: ["Stats"]),
         .testTarget(name: "SystemHUDTests", dependencies: ["SystemHUD"]),
         .testTarget(name: "PreferencesTests", dependencies: ["Preferences"]),
+        .testTarget(name: "MirrorTests", dependencies: ["Mirror"]),
         .testTarget(name: "SettingsUITests", dependencies: ["SettingsUI", "NotchUI"]),
         .testTarget(name: "ShortcutsTests", dependencies: ["Shortcuts"]),
         .testTarget(name: "AgendaTests", dependencies: ["Agenda", "NotchUI"]),

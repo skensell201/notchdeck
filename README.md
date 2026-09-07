@@ -12,11 +12,24 @@ Download `NotchDeck-<version>.dmg` from the
 [latest release](https://github.com/skensell201/notchdeck/releases/latest), open it,
 and drag NotchDeck to Applications.
 
-**The first launch needs a right-click and Open**, not a double-click. The app is
-signed but not notarized — notarization needs a paid Developer ID, and the
-vendored MediaRemote adapter's whole technique is an end-run around a private
-framework, so the App Store was never a destination either. macOS will refuse a
-double-click until you have opened it once the other way.
+**The first launch needs a trip through System Settings.** The app is signed but
+not notarized — notarization needs a paid Developer ID, and the vendored
+MediaRemote adapter's whole technique is an end-run around a private framework,
+so the App Store was never a destination either. macOS 26 shows *"Apple could not
+verify NotchDeck is free of malware"* and offers only a Done button.
+
+Double-click NotchDeck once and dismiss that dialog, then open **System Settings
+→ Privacy & Security**, scroll to the bottom, and click **Open Anyway** next to
+the message about NotchDeck. Confirm, and it launches — once. Every launch after
+that is an ordinary one.
+
+Control-clicking and choosing Open is the advice you will find everywhere else,
+and it no longer works: macOS 15 removed that bypass. If you would rather not
+visit System Settings, clearing the quarantine flag does the same job:
+
+```bash
+xattr -d com.apple.quarantine /Applications/NotchDeck.app
+```
 
 NotchDeck has no Dock icon. It lives in the menu bar, and that is where Settings
 and Quit are.
@@ -66,8 +79,8 @@ Builds the release configuration and writes `build/NotchDeck-<version>.dmg` with
 `/Applications` symlink. The image is **not notarized** — that needs a paid
 Developer ID, and the vendored MediaRemote adapter's whole technique is an
 end-run around a private framework, so the App Store was never a destination
-either. A first launch therefore needs a right-click and Open rather than a
-double-click.
+either. Whoever installs it therefore has to clear Gatekeeper by hand the first
+time, as the Installing section above describes.
 
 Launching at login needs the app to live in `/Applications`; from a build
 directory the switch reports the failure rather than silently doing nothing.
