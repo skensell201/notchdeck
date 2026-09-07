@@ -16,6 +16,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN_DIR/notchdeck" "$APP/Contents/MacOS/NotchDeck"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"
 
 # The MediaRemote adapter: /usr/bin/perl loads the framework via the .pl script;
 # the test client makes the adapter's `test` command a real probe.
