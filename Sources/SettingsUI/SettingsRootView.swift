@@ -10,6 +10,7 @@ struct SettingsRootView: View {
     let modules: ModulesViewModel
     let launchAtLogin: any LaunchAtLoginControlling
     let inspector: any PermissionInspecting
+    let displays: any DisplayNotchInventorying
 
     /// Bumped whenever the window comes forward, to re-read permission statuses
     /// the user may have changed in System Settings while this window waited.
@@ -28,7 +29,7 @@ struct SettingsRootView: View {
                 ModulesSettingsView(model: modules)
             }
             Tab("Notch", systemImage: "rectangle.topthird.inset.filled") {
-                NotchSettingsView(preferences: preferences)
+                NotchSettingsView(preferences: preferences, inventory: displays)
             }
             Tab("Permissions", systemImage: "hand.raised") {
                 PermissionsSettingsView(inspector: inspector, refreshToken: permissionRefresh)

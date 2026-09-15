@@ -21,8 +21,9 @@ public final class NotchViewModel {
     /// behind the opaque camera housing.
     public let closedFlare: CGFloat
     /// How the shell is painted. Layout never reads this except to reserve room
-    /// for the bloom.
-    public let appearance: NotchAppearance
+    /// for the bloom. Settable so the settings window can retint a running notch;
+    /// nothing here changes `bloomMargin`, so the panel never has to be resized.
+    public var appearance: NotchAppearance
 
     public init(
         registry: ModuleRegistry,
@@ -38,6 +39,28 @@ public final class NotchViewModel {
         self.peekSideWidth = peekSideWidth
         self.closedFlare = closedFlare
         self.appearance = appearance
+    }
+
+    /// The height `panelFillStops` are measured against, in points.
+    ///
+    /// Always the open panel, whatever mode the notch is in. The fill is laid out
+    /// once at this height and the shape clips it, so collapsing the notch hides
+    /// the lower part of the gradient rather than squeezing all of it into the
+    /// band — which would put colour inside the camera housing, the one place it
+    /// must never appear.
+    public var panelFillHeight: CGFloat { openSize.height }
+
+    /// The stops the expanded panel is filled with, top edge to bottom.
+    ///
+    /// The hold is measured rather than typed: it is exactly the fraction of the
+    /// open panel that lies over the camera housing, so it follows a display with a
+    /// taller notch and follows the Height slider on a synthetic one.
+    public var panelFillStops: [PanelFillStop] {
+        NotchPanelFill.stops(
+            tint: appearance.tint,
+            strength: appearance.tintStrength,
+            hold: panelFillHeight > 0 ? metrics.rect.height / panelFillHeight : 0
+        )
     }
 
     /// The size the peek band settles at. Content is laid out at this size for the

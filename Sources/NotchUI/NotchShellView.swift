@@ -23,6 +23,14 @@ public struct NotchShellView: View {
                 } action: { frame in
                     model.presentedRectInView = frame
                 }
+                // Above the black, below everything else. Sized in points rather
+                // than to the shape, so the band the housing sits behind only ever
+                // shows the top of the gradient — see `panelFillHeight`.
+                .overlay(alignment: .top) {
+                    panelFill
+                        .frame(height: model.panelFillHeight)
+                        .allowsHitTesting(false)
+                }
                 .overlay { rim }
                 .overlay(alignment: .top) { content }
                 .clipShape(shape)
@@ -54,6 +62,21 @@ public struct NotchShellView: View {
     /// A hairline along the edge, masked so it is completely absent at the top and
     /// reaches full strength further down. The stroke straddles the path and the
     /// outer half is removed by the shell's `clipShape`, leaving an inner bevel.
+    /// Flat black until the user picks a tint — see `NotchPanelFill` for why the
+    /// top of the panel is never allowed to be anything else.
+    private var panelFill: LinearGradient {
+        LinearGradient(
+            stops: model.panelFillStops.map { stop in
+                Gradient.Stop(
+                    color: Color(red: stop.tint.red, green: stop.tint.green, blue: stop.tint.blue),
+                    location: stop.location
+                )
+            },
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
     private var rim: some View {
         shape
             .stroke(.white, lineWidth: model.appearance.rimWidth)

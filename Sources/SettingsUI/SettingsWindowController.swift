@@ -21,18 +21,21 @@ public final class SettingsWindowController {
     private let registry: ModuleRegistry
     private let launchAtLogin: any LaunchAtLoginControlling
     private let inspector: any PermissionInspecting
+    private let displays: any DisplayNotchInventorying
     private var window: NSWindow?
 
     public init(
         preferences: Preferences,
         registry: ModuleRegistry,
         launchAtLogin: any LaunchAtLoginControlling,
-        inspector: any PermissionInspecting = SystemPermissionInspector()
+        inspector: any PermissionInspecting = SystemPermissionInspector(),
+        displays: any DisplayNotchInventorying = SystemDisplayNotchInventory()
     ) {
         self.preferences = preferences
         self.registry = registry
         self.launchAtLogin = launchAtLogin
         self.inspector = inspector
+        self.displays = displays
     }
 
     /// Shows the window, or brings the existing one forward. Safe to call from a
@@ -71,7 +74,8 @@ public final class SettingsWindowController {
             preferences: preferences,
             modules: model,
             launchAtLogin: launchAtLogin,
-            inspector: inspector
+            inspector: inspector,
+            displays: displays
         )
 
         let window = NSWindow(contentViewController: NSHostingController(rootView: root))

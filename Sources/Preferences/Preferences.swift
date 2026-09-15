@@ -26,6 +26,10 @@ public final class Preferences {
         public static let exitGraceMilliseconds = "ExitGraceMilliseconds"
         public static let suppressVolumeHUD = "SuppressSystemVolumeHUD"
         public static let dismissWithEscape = "DismissWithEscape"
+        public static let notchTintRed = "NotchTintRed"
+        public static let notchTintGreen = "NotchTintGreen"
+        public static let notchTintBlue = "NotchTintBlue"
+        public static let notchTintStrength = "NotchTintStrength"
         public static let clipboardCapacity = "ClipboardCapacity"
         public static let clipboardExclusions = "ClipboardExcludedBundleIdentifiers"
     }
@@ -37,6 +41,7 @@ public final class Preferences {
         public static let exitGraceMilliseconds = 0...2000
         public static let syntheticNotchWidth = 120.0...600.0
         public static let syntheticNotchHeight = 20.0...60.0
+        public static let notchTintStrength = 0.0...1.0
         public static let clipboardCapacity = 5...500
     }
 
@@ -46,6 +51,8 @@ public final class Preferences {
     private var storedLayout: ModuleLayout
     private var storedNotchWidth: Double
     private var storedNotchHeight: Double
+    private var storedTint: NotchTint?
+    private var storedTintStrength: Double
     private var storedHoverDwell: Int
     private var storedExitGrace: Int
     private var storedSuppressVolumeHUD: Bool
@@ -71,6 +78,19 @@ public final class Preferences {
 
         storedNotchWidth = Self.clamp(defaults.object(forKey: Key.syntheticNotchWidth) as? Double ?? 220, Range.syntheticNotchWidth)
         storedNotchHeight = Self.clamp(defaults.object(forKey: Key.syntheticNotchHeight) as? Double ?? 32, Range.syntheticNotchHeight)
+        // All three components or none: a half-written tint is not a colour, and
+        // reading one back as black would silently repaint the panel.
+        if let red = defaults.object(forKey: Key.notchTintRed) as? Double,
+           let green = defaults.object(forKey: Key.notchTintGreen) as? Double,
+           let blue = defaults.object(forKey: Key.notchTintBlue) as? Double {
+            storedTint = NotchTint(red: red, green: green, blue: blue)
+        } else {
+            storedTint = nil
+        }
+        storedTintStrength = Self.clamp(
+            defaults.object(forKey: Key.notchTintStrength) as? Double ?? 0.7,
+            Range.notchTintStrength
+        )
         storedHoverDwell = Self.clamp(defaults.object(forKey: Key.hoverDwellMilliseconds) as? Int ?? 180, Range.hoverDwellMilliseconds)
         storedExitGrace = Self.clamp(defaults.object(forKey: Key.exitGraceMilliseconds) as? Int ?? 220, Range.exitGraceMilliseconds)
         storedSuppressVolumeHUD = defaults.bool(forKey: Key.suppressVolumeHUD)
@@ -99,6 +119,33 @@ public final class Preferences {
             storedNotchHeight = Self.clamp(newValue.height, Range.syntheticNotchHeight)
             defaults.set(storedNotchWidth, forKey: Key.syntheticNotchWidth)
             defaults.set(storedNotchHeight, forKey: Key.syntheticNotchHeight)
+        }
+    }
+
+    /// The colour the expanded panel fades to below the camera housing, or nil for
+    /// the flat black the shell had before this existed. Off by default: a tint is
+    /// something the user goes and asks for.
+    public var notchTint: NotchTint? {
+        get { storedTint }
+        set {
+            storedTint = newValue
+            guard let newValue else {
+                defaults.removeObject(forKey: Key.notchTintRed)
+                defaults.removeObject(forKey: Key.notchTintGreen)
+                defaults.removeObject(forKey: Key.notchTintBlue)
+                return
+            }
+            defaults.set(newValue.red, forKey: Key.notchTintRed)
+            defaults.set(newValue.green, forKey: Key.notchTintGreen)
+            defaults.set(newValue.blue, forKey: Key.notchTintBlue)
+        }
+    }
+
+    public var notchTintStrength: Double {
+        get { storedTintStrength }
+        set {
+            storedTintStrength = Self.clamp(newValue, Range.notchTintStrength)
+            defaults.set(storedTintStrength, forKey: Key.notchTintStrength)
         }
     }
 

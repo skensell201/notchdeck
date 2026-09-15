@@ -1,4 +1,5 @@
 import CoreGraphics
+import NotchCore
 
 /// Everything about how the notch shell is painted, in one place, so it can be
 /// tuned without touching layout.
@@ -20,6 +21,14 @@ public struct NotchAppearance: Equatable, Sendable {
     public var shadowRadius: CGFloat
     public var shadowOpacity: Double
 
+    /// The colour the expanded panel fades to below the camera housing. Nil is the
+    /// flat black the shell was painted with before there was a choice, and stays
+    /// the default: a tint is something the user asks for.
+    public var tint: NotchTint?
+    /// How far towards `tint` the bottom edge travels. Full strength on a saturated
+    /// colour stops reading as screen bezel and starts reading as a coloured window.
+    public var tintStrength: Double
+
     /// Room the panel reserves around the shape so the shadow is not clipped at the
     /// window edge. Nothing is reserved above the shape: its top edge is flush with
     /// the screen and there is nowhere to bleed into.
@@ -33,7 +42,9 @@ public struct NotchAppearance: Equatable, Sendable {
         rimFadeEnd: Double = 0.45,
         shadowOffset: CGFloat = 5,
         shadowRadius: CGFloat = 18,
-        shadowOpacity: Double = 0.45
+        shadowOpacity: Double = 0.45,
+        tint: NotchTint? = nil,
+        tintStrength: Double = 0.7
     ) {
         self.rimWidth = rimWidth
         self.rimOpacity = rimOpacity
@@ -41,5 +52,7 @@ public struct NotchAppearance: Equatable, Sendable {
         self.shadowOffset = shadowOffset
         self.shadowRadius = shadowRadius
         self.shadowOpacity = shadowOpacity
+        self.tint = tint
+        self.tintStrength = tintStrength
     }
 }

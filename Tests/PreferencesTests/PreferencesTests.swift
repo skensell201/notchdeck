@@ -108,6 +108,52 @@ struct PreferencesTests {
 
         #expect(preferences.clipboardExclusions.count == 2)
     }
+
+    @Test("a fresh install has no panel tint, so the notch stays the flat black it was")
+    func tintIsOffByDefault() {
+        let preferences = makePreferences()
+
+        #expect(preferences.notchTint == nil)
+        #expect(preferences.notchTintStrength == 0.7)
+    }
+
+    @Test("a tint survives a round trip through defaults")
+    func tintRoundTrip() {
+        let suite = UserDefaults(suiteName: "notchdeck.tests.\(UUID().uuidString)")!
+        let first = Preferences(defaults: suite)
+        let indigo = NotchTint(red: 0.169, green: 0.239, blue: 0.471)
+
+        first.notchTint = indigo
+        first.notchTintStrength = 0.55
+
+        let second = Preferences(defaults: suite)
+
+        #expect(second.notchTint == indigo)
+        #expect(second.notchTintStrength == 0.55)
+    }
+
+    @Test("clearing the tint puts the panel back to black rather than leaving a stale colour")
+    func tintCanBeCleared() {
+        let suite = UserDefaults(suiteName: "notchdeck.tests.\(UUID().uuidString)")!
+        let first = Preferences(defaults: suite)
+        first.notchTint = NotchTint(red: 0.5, green: 0.2, blue: 0.1)
+
+        first.notchTint = nil
+
+        #expect(first.notchTint == nil)
+        #expect(Preferences(defaults: suite).notchTint == nil)
+    }
+
+    @Test("a strength outside the range is clamped, not stored as written")
+    func tintStrengthIsClamped() {
+        let preferences = makePreferences()
+
+        preferences.notchTintStrength = 4
+        #expect(preferences.notchTintStrength == 1)
+
+        preferences.notchTintStrength = -2
+        #expect(preferences.notchTintStrength == 0)
+    }
 }
 
 /// `withObservationTracking`'s onChange runs off the main actor, so the flag it

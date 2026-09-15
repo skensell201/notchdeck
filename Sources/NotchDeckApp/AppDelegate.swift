@@ -82,7 +82,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registry.register(agenda)
         self.agenda = agenda
 
-        let surfaces = NotchSurfaceManager(registry: registry, syntheticSize: preferences.syntheticNotchSize)
+        let surfaces = NotchSurfaceManager(
+            registry: registry,
+            syntheticSize: preferences.syntheticNotchSize,
+            appearance: preferences.notchAppearance
+        )
         self.surfaces = surfaces
 
         surfaces.onDragEntered = { [weak self] in
@@ -262,6 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 controller.timing = preferences.timing
                 surfaces.syntheticSize = preferences.syntheticNotchSize
+                surfaces.appearance = preferences.notchAppearance
                 if hud.isEnabled != preferences.suppressVolumeHUD {
                     hud.isEnabled = preferences.suppressVolumeHUD
                 }
@@ -281,5 +286,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+}
+
+/// Assembled here rather than in `Preferences`, which stores the tint but has no
+/// business knowing what the shell does with it, and would have to depend on the
+/// whole UI layer to say so.
+private extension Preferences {
+    var notchAppearance: NotchAppearance {
+        NotchAppearance(tint: notchTint, tintStrength: notchTintStrength)
     }
 }

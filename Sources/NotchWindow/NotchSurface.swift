@@ -20,11 +20,17 @@ public final class NotchSurface {
     public var onDragMoved: ((CGPoint) -> Void)?
     public var onDrop: (([URL], CGPoint) -> Bool)?
 
-    public init(screen: NSScreen, displayID: CGDirectDisplayID, registry: ModuleRegistry, syntheticSize: CGSize) {
+    public init(
+        screen: NSScreen,
+        displayID: CGDirectDisplayID,
+        registry: ModuleRegistry,
+        syntheticSize: CGSize,
+        appearance: NotchAppearance = NotchAppearance()
+    ) {
         self.displayID = displayID
 
         let metrics = NotchResolver.resolve(screen: screen.notchDescription, syntheticSize: syntheticSize)
-        let model = NotchViewModel(registry: registry, metrics: metrics)
+        let model = NotchViewModel(registry: registry, metrics: metrics, appearance: appearance)
         self.model = model
 
         let maximum = model.maximumSize
@@ -91,6 +97,13 @@ public final class NotchSurface {
         let maximum = model.maximumSize
         panel.setFrame(Self.panelFrame(metrics: metrics, maximum: maximum), display: true)
         container.frame = NSRect(origin: .zero, size: maximum)
+    }
+
+    /// Repaints without re-resolving. Nothing in the appearance changes
+    /// `bloomMargin`, so the panel keeps the frame it already has.
+    public func update(appearance: NotchAppearance) {
+        guard appearance != model.appearance else { return }
+        model.appearance = appearance
     }
 
     public func close() {

@@ -17,6 +17,17 @@ public final class NotchSurfaceManager {
             rebuild()
         }
     }
+    /// Settable for the same reason as `syntheticSize`: the settings window has to
+    /// be able to repaint a running notch. Unlike a resize this needs no rebuild —
+    /// each surface keeps its panel and only its model changes.
+    public var appearance: NotchAppearance {
+        didSet {
+            guard appearance != oldValue else { return }
+            for surface in surfaces.values {
+                surface.update(appearance: appearance)
+            }
+        }
+    }
     private var surfaces: [CGDirectDisplayID: NotchSurface] = [:]
     private var observer: NSObjectProtocol?
     private var mode: NotchMode = .closed
@@ -28,9 +39,14 @@ public final class NotchSurfaceManager {
     public var onDragMoved: ((CGPoint) -> Void)?
     public var onDrop: (([URL], CGPoint) -> Bool)?
 
-    public init(registry: ModuleRegistry, syntheticSize: CGSize = CGSize(width: 220, height: 32)) {
+    public init(
+        registry: ModuleRegistry,
+        syntheticSize: CGSize = CGSize(width: 220, height: 32),
+        appearance: NotchAppearance = NotchAppearance()
+    ) {
         self.registry = registry
         self.syntheticSize = syntheticSize
+        self.appearance = appearance
         rebuild()
         observer = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -78,8 +94,15 @@ public final class NotchSurfaceManager {
             }
             if let existing = surfaces[id] {
                 existing.update(screen: screen, syntheticSize: syntheticSize)
+                existing.update(appearance: appearance)
             } else {
-                let surface = NotchSurface(screen: screen, displayID: id, registry: registry, syntheticSize: syntheticSize)
+                let surface = NotchSurface(
+                    screen: screen,
+                    displayID: id,
+                    registry: registry,
+                    syntheticSize: syntheticSize,
+                    appearance: appearance
+                )
                 surface.onDragEntered = { [weak self] in self?.onDragEntered?() }
                 surface.onDragExited = { [weak self] in self?.onDragExited?() }
                 surface.onDragMoved = { [weak self] point in self?.onDragMoved?(point) }
