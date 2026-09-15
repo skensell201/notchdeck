@@ -31,6 +31,9 @@ public final class NotchSurfaceManager {
     private var surfaces: [CGDirectDisplayID: NotchSurface] = [:]
     private var observer: NSObjectProtocol?
     private var mode: NotchMode = .closed
+    /// Remembered alongside the mode so a surface rebuilt mid-announcement — a
+    /// display waking while a drop is falling — comes back showing it.
+    private var drop: PeekPayload?
 
     /// One drag-handling seam for every surface, present and future. Each surface
     /// forwards to these at call time, so they may be assigned after `init`.
@@ -72,10 +75,12 @@ public final class NotchSurfaceManager {
         surfaces.values.first { $0.hoverRect.contains(point) }
     }
 
-    public func apply(mode: NotchMode) {
+    public func apply(mode: NotchMode, drop: PeekPayload? = nil) {
         self.mode = mode
+        self.drop = drop
         for surface in surfaces.values {
             surface.update(mode: mode)
+            surface.update(drop: drop)
         }
     }
 
@@ -113,6 +118,7 @@ public final class NotchSurfaceManager {
 
         for surface in surfaces.values {
             surface.update(mode: mode)
+            surface.update(drop: drop)
         }
 
         logger.notice("rebuilt \(self.surfaces.count, privacy: .public) notch surfaces")

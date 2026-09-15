@@ -48,6 +48,34 @@ enum CoreAudioProperty {
         }
     }
 
+    /// Reads a variable-length array property, such as the list of every audio
+    /// device the machine has. Nil rather than an empty array when the read
+    /// fails: "no devices at all" and "the question could not be asked" mean
+    /// opposite things to anything watching for devices to disappear.
+    static func values<Value>(
+        _ type: Value.Type = Value.self,
+        of object: AudioObjectID,
+        at address: AudioObjectPropertyAddress
+    ) -> [Value]? {
+        var address = address
+        guard object != AudioObjectID(kAudioObjectUnknown),
+              AudioObjectHasProperty(object, &address)
+        else { return nil }
+
+        var size = UInt32(0)
+        guard AudioObjectGetPropertyDataSize(object, &address, 0, nil, &size) == noErr else { return nil }
+        let capacity = Int(size) / MemoryLayout<Value>.stride
+        guard capacity > 0 else { return [] }
+
+        return withUnsafeTemporaryAllocation(of: Value.self, capacity: capacity) { buffer -> [Value]? in
+            guard let pointer = buffer.baseAddress else { return nil }
+            var size = size
+            let status = AudioObjectGetPropertyData(object, &address, 0, nil, &size, pointer)
+            guard status == noErr else { return nil }
+            return Array(UnsafeBufferPointer(start: pointer, count: Int(size) / MemoryLayout<Value>.stride))
+        }
+    }
+
     /// Reads a `CFString` property, such as a device's name.
     ///
     /// The HAL hands these back with a retain the caller owns, despite the

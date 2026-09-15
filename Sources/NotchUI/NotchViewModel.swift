@@ -11,6 +11,9 @@ public final class NotchViewModel {
     /// Geometry of the notch on this screen, in global screen coordinates.
     public var metrics: NotchMetrics
     public var mode: NotchMode = .closed
+    /// The announcement currently falling out of the notch, if any. Independent
+    /// of `mode`: it hangs under a collapsed band and under an open panel alike.
+    public var drop: PeekPayload?
 
     /// Size of the fully expanded panel content.
     public let openSize: CGSize
@@ -81,12 +84,18 @@ public final class NotchViewModel {
         case .closed where registry.hasLiveContent:
             peekSize
         case .closed:
-            CGSize(width: metrics.rect.width + closedFlare * 2, height: metrics.rect.height)
+            closedSize
         case .peek:
             peekSize
         case .open, .pinned:
             openSize
         }
+    }
+
+    /// The collapsed band: the notch plus the flare that keeps its concave top
+    /// corners clear of the camera housing.
+    public var closedSize: CGSize {
+        CGSize(width: metrics.rect.width + closedFlare * 2, height: metrics.rect.height)
     }
 
     /// The maximum size the hosting panel must reserve, regardless of mode.
@@ -102,7 +111,14 @@ public final class NotchViewModel {
                 metrics.rect.width + peekSideWidth * 2,
                 metrics.rect.width + closedFlare * 2
             ) + appearance.bloomMargin,
-            height: max(openSize.height, metrics.rect.height) + appearance.bloomMargin
+            height: max(
+                openSize.height,
+                metrics.rect.height,
+                // A drop hangs below whatever shape is on screen — the open
+                // panel included — and a window sized only to that shape would
+                // clip the drop off at its edge.
+                NotchDropGeometry.reach(bandHeight: max(openSize.height, metrics.rect.height))
+            ) + appearance.bloomMargin
         )
     }
 

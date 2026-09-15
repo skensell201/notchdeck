@@ -17,7 +17,7 @@ public final class LiveActivityCenter {
     private var isRunning = false
     private let logger = Log.make("live-activities")
 
-    /// - Parameter sources: defaults to the three real ones. Pass fakes in tests;
+    /// - Parameter sources: defaults to the two real ones. Pass fakes in tests;
     ///   pass a subset to run with, say, power announcements only.
     public init(sources: [any LiveActivitySource] = LiveActivityCenter.systemSources()) {
         self.sources = sources
@@ -28,7 +28,7 @@ public final class LiveActivityCenter {
     /// A function rather than a stored default so that constructing a centre with
     /// fakes never touches IOKit or CoreAudio.
     public static func systemSources() -> [any LiveActivitySource] {
-        [PowerActivitySource(), VolumeActivitySource(), OutputDeviceActivitySource()]
+        [PowerActivitySource(), AudioDeviceSource()]
     }
 
     /// Idempotent: starting twice would otherwise leave every source with two
@@ -38,6 +38,10 @@ public final class LiveActivityCenter {
         isRunning = true
         for source in sources {
             source.start { [weak self] payload in
+                // Debug level: one line per announcement is far too much for a
+                // normal log, and exactly what is wanted when an announcement
+                // does not arrive and the question is which half is silent.
+                self?.logger.debug("announced \(payload.id, privacy: .public): \(payload.title, privacy: .public)")
                 self?.onActivity?(payload)
             }
         }

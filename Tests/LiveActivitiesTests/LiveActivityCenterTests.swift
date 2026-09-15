@@ -118,14 +118,13 @@ struct LiveActivityCenterTests {
         source.announce(payload("volume"))
     }
 
-    @Test("the three real sources are the three the app wires up")
+    @Test("the two real sources are the two the app wires up")
     func systemSources() {
         // Constructing them must not need hardware to exist, only to be there.
         let sources = LiveActivityCenter.systemSources()
 
-        #expect(sources.count == 3)
+        #expect(sources.count == 2)
         #expect(sources.contains { $0 is PowerActivitySource })
-        #expect(sources.contains { $0 is VolumeActivitySource })
-        #expect(sources.contains { $0 is OutputDeviceActivitySource })
+        #expect(sources.contains { $0 is AudioDeviceSource })
     }
 }

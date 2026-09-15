@@ -5,6 +5,12 @@ import Testing
 struct NotchReducerPeekTests {
     private let charging = PeekPayload(id: "charging", duration: .seconds(2))
     private let volume = PeekPayload(id: "volume", duration: .milliseconds(900))
+    private let drop = PeekPayload(
+        id: "audio-device",
+        duration: NotchDropTiming.total,
+        title: "AirPods Pro",
+        style: .drop
+    )
 
     @Test("a live activity moves a closed notch into peek and arms its timeout")
     func liveActivityPeeks() {
@@ -21,6 +27,73 @@ struct NotchReducerPeekTests {
 
         #expect(transition.state.mode == .peek(volume))
         #expect(transition.effects == [.schedulePeekTimeout(.milliseconds(900))])
+    }
+
+    // MARK: Drops
+
+    @Test("a drop falls without touching the mode, and runs on its own timer")
+    func dropIsNotAMode() {
+        let transition = NotchReducer.reduce(state: .closed, event: .liveActivity(drop))
+
+        #expect(transition.state.drop == drop)
+        // The band is left exactly as it was: everything a drop does happens
+        // below the notch.
+        #expect(transition.state.mode == .closed)
+        #expect(transition.effects == [.scheduleDropTimeout(NotchDropTiming.total)])
+    }
+
+    @Test("a drop still falls while the panel is open, and leaves it open")
+    func dropFallsFromAnOpenPanel() {
+        let open = NotchState(mode: .open, pointerInside: true)
+
+        let transition = NotchReducer.reduce(state: open, event: .liveActivity(drop))
+
+        #expect(transition.state.drop == drop)
+        // Collapsing a panel the user is using to announce a device would be
+        // worse than saying nothing.
+        #expect(transition.state.mode == .open)
+    }
+
+    @Test("a drop and a peek are on screen at once without displacing each other")
+    func dropAndPeekCoexist() {
+        let dropping = NotchState(drop: drop)
+
+        let transition = NotchReducer.reduce(state: dropping, event: .liveActivity(charging))
+
+        #expect(transition.state.mode == .peek(charging))
+        #expect(transition.state.drop == drop)
+    }
+
+    @Test("a second drop replaces the first and restarts its timer")
+    func dropReplacesDrop() {
+        let other = PeekPayload(id: "audio-device", duration: .seconds(1), title: "Studio Display", style: .drop)
+
+        let transition = NotchReducer.reduce(state: NotchState(drop: drop), event: .liveActivity(other))
+
+        #expect(transition.state.drop == other)
+        #expect(transition.effects == [.scheduleDropTimeout(.seconds(1))])
+    }
+
+    @Test("the drop timeout clears the drop and nothing else")
+    func dropTimeoutClearsTheDrop() {
+        let dropping = NotchState(mode: .peek(charging), drop: drop)
+
+        let transition = NotchReducer.reduce(state: dropping, event: .dropTimeoutElapsed)
+
+        #expect(transition.state.drop == nil)
+        #expect(transition.state.mode == .peek(charging))
+    }
+
+    @Test("hovering the notch does not cut short something falling past it")
+    func hoverLeavesTheDropAlone() {
+        let dropping = NotchState(drop: drop)
+
+        let transition = NotchReducer.reduce(state: dropping, event: .pointerEntered)
+
+        #expect(transition.state.drop == drop)
+        // The peek timer is the one hover freezes; the drop has its own, and no
+        // effect here touches it.
+        #expect(!transition.effects.contains(.scheduleDropTimeout(NotchDropTiming.total)))
     }
 
     @Test("a live activity never interrupts an expanded notch")

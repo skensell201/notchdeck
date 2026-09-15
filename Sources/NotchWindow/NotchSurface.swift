@@ -85,6 +85,10 @@ public final class NotchSurface {
         model.mode = mode
     }
 
+    public func update(drop: PeekPayload?) {
+        model.drop = drop
+    }
+
     /// Re-resolves this surface against its screen's current geometry. A display
     /// that stays connected can still change resolution, scale or arrangement, and
     /// `maximumSize` depends on the notch width, so the panel and container both

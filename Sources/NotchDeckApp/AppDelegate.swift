@@ -106,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         controller.onStateChange = { state in
-            surfaces.apply(mode: state.mode)
+            surfaces.apply(mode: state.mode, drop: state.drop)
             registry.setPanelVisible(state.isExpanded)
         }
 

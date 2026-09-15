@@ -15,6 +15,7 @@ public enum NotchEffect: Equatable, Sendable {
     case cancelExitGrace
     case schedulePeekTimeout(Duration)
     case cancelPeekTimeout
+    case scheduleDropTimeout(Duration)
 }
 
 public struct NotchTransition: Equatable, Sendable {

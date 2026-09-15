@@ -15,6 +15,7 @@ public final class NotchController {
     private var hoverDwell: (any NotchCancellable)?
     private var exitGrace: (any NotchCancellable)?
     private var peekTimeout: (any NotchCancellable)?
+    private var dropTimeout: (any NotchCancellable)?
 
     public init(timing: NotchTiming = NotchTiming(), scheduler: any NotchScheduler = TaskScheduler()) {
         self.timing = timing
@@ -25,6 +26,7 @@ public final class NotchController {
         hoverDwell?.cancel()
         exitGrace?.cancel()
         peekTimeout?.cancel()
+        dropTimeout?.cancel()
     }
 
     public func send(_ event: NotchEvent) {
@@ -63,6 +65,11 @@ public final class NotchController {
         case .cancelPeekTimeout:
             peekTimeout?.cancel()
             peekTimeout = nil
+        case .scheduleDropTimeout(let duration):
+            // Its own timer: a drop and a peek can be on screen at once, and
+            // hovering the notch must not cut short something falling past it.
+            dropTimeout?.cancel()
+            dropTimeout = schedule(after: duration, event: .dropTimeoutElapsed)
         }
     }
 

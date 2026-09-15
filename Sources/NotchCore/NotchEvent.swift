@@ -15,4 +15,5 @@ public enum NotchEvent: Equatable, Sendable {
     case dragExited
     case liveActivity(PeekPayload)
     case peekTimeoutElapsed
+    case dropTimeoutElapsed
 }

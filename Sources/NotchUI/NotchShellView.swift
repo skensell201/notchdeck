@@ -57,6 +57,7 @@ public struct NotchShellView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .top) { dropLayer }
     }
 
     /// A hairline along the edge, masked so it is completely absent at the top and
@@ -104,11 +105,38 @@ public struct NotchShellView: View {
         return Array(all.dropFirst((all.count + 1) / 2))
     }
 
+    /// The collapsed silhouette's corners, shared with the drop: it draws its own
+    /// copy of the band, and a copy with different corners would show as a seam.
+    static let closedTopRadius: CGFloat = 6
+    static let closedBottomRadius: CGFloat = 10
+
     private var shape: NotchShape {
         NotchShape(
-            topCornerRadius: model.mode.isExpanded ? 10 : 6,
-            bottomCornerRadius: model.mode.isExpanded ? 22 : 10
+            topCornerRadius: model.mode.isExpanded ? 10 : Self.closedTopRadius,
+            bottomCornerRadius: model.mode.isExpanded ? 22 : Self.closedBottomRadius
         )
+    }
+
+    /// Drawn outside the shell's `clipShape`, because the whole point of a drop is
+    /// that it leaves the shape. Nothing here is interactive, and it sits outside
+    /// `presentedRectInView`, so the gap under the notch keeps falling through to
+    /// whatever is behind the panel.
+    @ViewBuilder
+    private var dropLayer: some View {
+        if let payload = model.drop {
+            NotchDropView(
+                payload: payload,
+                // Hangs from whatever the shell is drawing right now, so an
+                // announcement that arrives while the panel is open falls out of
+                // the panel rather than out of where the band used to be.
+                band: model.targetSize,
+                topRadius: shape.topCornerRadius,
+                bottomRadius: shape.bottomCornerRadius
+            )
+            // A second announcement while the first is still falling has to start
+            // its own drop, not inherit the elapsed time of the one before it.
+            .id(payload.id + payload.title)
+        }
     }
 
     @ViewBuilder

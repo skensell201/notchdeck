@@ -98,6 +98,13 @@ public enum NotchReducer {
             return NotchTransition(state: state, effects: [.scheduleExitGrace])
 
         case .liveActivity(let payload):
+            // A drop rides alongside whatever the notch is doing: it neither
+            // opens a closed notch nor collapses an open one, so it is the one
+            // announcement that still arrives while the panel is in use.
+            guard payload.style != .drop else {
+                state.drop = payload
+                return NotchTransition(state: state, effects: [.scheduleDropTimeout(payload.duration)])
+            }
             switch state.mode {
             case .closed, .peek:
                 state.mode = .peek(payload)
@@ -105,6 +112,10 @@ public enum NotchReducer {
             case .open, .pinned:
                 return NotchTransition(state: state)
             }
+
+        case .dropTimeoutElapsed:
+            state.drop = nil
+            return NotchTransition(state: state)
 
         case .peekTimeoutElapsed:
             guard case .peek = state.mode else { return NotchTransition(state: state) }

@@ -90,55 +90,19 @@ struct LiveActivitySourceTests {
         #expect(observer.starts == 1)
     }
 
-    // MARK: Volume
+    // MARK: Audio devices
 
-    @Test("the volume at launch is seeded, not announced")
-    func volumeStartIsSilent() {
-        let observer = FakeObserver(reading: VolumeReading(level: 0.4, isMuted: false))
-        let source = VolumeActivitySource(observer: observer)
-        var announced: [PeekPayload] = []
-
-        source.start { announced.append($0) }
-
-        #expect(announced.isEmpty)
-    }
-
-    @Test("one volume change announces once, however many times CoreAudio says so")
-    func volumeAnnouncesOncePerChange() {
-        let observer = FakeObserver(reading: VolumeReading(level: 0.4, isMuted: false))
-        let source = VolumeActivitySource(observer: observer)
-        var announced: [PeekPayload] = []
-        source.start { announced.append($0) }
-
-        observer.change(to: VolumeReading(level: 0.5, isMuted: false))
-        // The second callback CoreAudio makes for the same change.
-        observer.notifyWithoutChanging()
-
-        #expect(announced.map(\.level) == [0.5])
-    }
-
-    @Test("stopping stops the volume announcements")
-    func volumeStops() {
-        let observer = FakeObserver(reading: VolumeReading(level: 0.4, isMuted: false))
-        let source = VolumeActivitySource(observer: observer)
-        var announced: [PeekPayload] = []
-        source.start { announced.append($0) }
-
-        source.stop()
-        observer.change(to: VolumeReading(level: 0.9, isMuted: false))
-
-        #expect(observer.stops == 1)
-        #expect(announced.isEmpty)
-    }
-
-    // MARK: Output device
-
-    @Test("the device in use at launch is seeded, not announced")
-    func outputDeviceStartIsSilent() {
-        let observer = FakeObserver(
-            reading: OutputDeviceReading(name: "MacBook Pro Speakers", transport: .builtIn)
+    private func reading(_ names: [String], output: String?) -> AudioDeviceReading {
+        AudioDeviceReading(
+            devices: names.map { AudioDevice(name: $0, transport: .bluetooth) },
+            output: output
         )
-        let source = OutputDeviceActivitySource(observer: observer)
+    }
+
+    @Test("what is already attached at launch is seeded, not announced")
+    func audioDeviceStartIsSilent() {
+        let observer = FakeObserver(reading: reading(["MacBook Pro Speakers"], output: "MacBook Pro Speakers"))
+        let source = AudioDeviceSource(observer: observer)
         var announced: [PeekPayload] = []
 
         source.start { announced.append($0) }
@@ -147,33 +111,32 @@ struct LiveActivitySourceTests {
     }
 
     @Test("connecting a device announces it by name, once")
-    func outputDeviceAnnouncesTheNewDevice() {
-        let observer = FakeObserver(
-            reading: OutputDeviceReading(name: "MacBook Pro Speakers", transport: .builtIn)
-        )
-        let source = OutputDeviceActivitySource(observer: observer)
+    func audioDeviceAnnouncesTheNewDevice() {
+        let observer = FakeObserver(reading: reading(["MacBook Pro Speakers"], output: "MacBook Pro Speakers"))
+        let source = AudioDeviceSource(observer: observer)
         var announced: [PeekPayload] = []
         source.start { announced.append($0) }
 
-        observer.change(to: OutputDeviceReading(name: "AirPods Pro", transport: .bluetooth))
-        // Property churn on the same device afterwards.
+        observer.change(to: reading(["MacBook Pro Speakers", "AirPods Pro"], output: "MacBook Pro Speakers"))
+        // The output moving to what just arrived is the same event arriving a
+        // second time, and the system's own property churn is not an event at all.
+        observer.change(to: reading(["MacBook Pro Speakers", "AirPods Pro"], output: "AirPods Pro"))
         observer.notifyWithoutChanging()
         observer.notifyWithoutChanging()
 
         #expect(announced.map(\.title) == ["AirPods Pro"])
+        #expect(announced.map(\.detail) == ["Connected"])
     }
 
     @Test("stopping stops the device announcements")
-    func outputDeviceStops() {
-        let observer = FakeObserver(
-            reading: OutputDeviceReading(name: "MacBook Pro Speakers", transport: .builtIn)
-        )
-        let source = OutputDeviceActivitySource(observer: observer)
+    func audioDeviceStops() {
+        let observer = FakeObserver(reading: reading(["MacBook Pro Speakers"], output: "MacBook Pro Speakers"))
+        let source = AudioDeviceSource(observer: observer)
         var announced: [PeekPayload] = []
         source.start { announced.append($0) }
 
         source.stop()
-        observer.change(to: OutputDeviceReading(name: "AirPods Pro", transport: .bluetooth))
+        observer.change(to: reading(["MacBook Pro Speakers", "AirPods Pro"], output: "AirPods Pro"))
 
         #expect(observer.stops == 1)
         #expect(announced.isEmpty)
