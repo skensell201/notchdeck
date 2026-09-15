@@ -142,7 +142,7 @@ public struct NotchShellView: View {
     @ViewBuilder
     private var content: some View {
         switch model.mode {
-        case .closed where model.registry.hasLiveContent:
+        case .closed where model.showsLiveContentWhenClosed && model.registry.hasLiveContent:
             peekContent
         case .closed:
             EmptyView()

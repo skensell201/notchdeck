@@ -89,6 +89,10 @@ public final class NotchSurface {
         model.drop = drop
     }
 
+    public func update(showsLiveContentWhenClosed: Bool) {
+        model.showsLiveContentWhenClosed = showsLiveContentWhenClosed
+    }
+
     /// Re-resolves this surface against its screen's current geometry. A display
     /// that stays connected can still change resolution, scale or arrangement, and
     /// `maximumSize` depends on the notch width, so the panel and container both

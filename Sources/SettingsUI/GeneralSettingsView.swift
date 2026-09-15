@@ -23,8 +23,8 @@ struct GeneralSettingsView: View {
             }
 
             Section {
-                Toggle("Replace the system volume overlay", isOn: $preferences.suppressVolumeHUD)
-                Text("Volume changes appear in the notch instead of the middle of the screen.")
+                Toggle("Hide the system volume overlay", isOn: $preferences.suppressVolumeHUD)
+                Text("Stops the square that appears in the middle of the screen when you change the volume. NotchDeck puts nothing in its place — the keys still work, they just stop announcing themselves.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

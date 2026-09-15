@@ -21,8 +21,19 @@ struct PreferencesTests {
         #expect(preferences.clipboardCapacity == 60)
         #expect(!preferences.suppressVolumeHUD)
         #expect(!preferences.dismissWithEscape)
+        // The notch keeps its own shape until the user asks for the wide band.
+        #expect(!preferences.showLiveContentWhenClosed)
         #expect(preferences.clipboardExclusions.isEmpty)
         #expect(preferences.moduleLayout == ModuleLayout())
+    }
+
+    @Test("the collapsed band setting survives a round trip")
+    func liveContentRoundTrip() {
+        let preferences = makePreferences()
+
+        preferences.showLiveContentWhenClosed = true
+
+        #expect(preferences.showLiveContentWhenClosed)
     }
 
     @Test("a module layout survives a round trip, including a module this build does not know")

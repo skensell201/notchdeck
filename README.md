@@ -148,6 +148,7 @@ rendering or windowing:
 - [ ] Birthdays do not appear in the calendar list; meetings that ended more than fifteen minutes ago do not either.
 - [ ] The Shortcuts tab lists your shortcuts and running one works; with no shortcuts saved the list is empty, which is correct.
 - [ ] All eight tabs fit either side of the camera housing and none is hidden behind it.
+- [ ] With music playing, the collapsed notch keeps its own shape; "Widen the notch for what is playing" in Settings → Notch brings the wide band back.
 - [ ] Plugging and unplugging the charger announces itself.
 - [ ] Connecting AirPods or another audio device sags the notch and drops a capsule with the device's name under it; disconnecting does the same and says so.
 - [ ] Putting Bluetooth headphones back on announces them even though they never left the device list.
@@ -155,7 +156,7 @@ rendering or windowing:
 - [ ] A drop arriving while the panel is open falls out of the panel and leaves it open.
 - [ ] Hovering the notch while a drop is falling does not cut it short.
 - [ ] The gap between the notch and a hanging drop is not clickable — a window under it still takes the click.
-- [ ] Turning on "Replace the system volume overlay" in the menu bar stops the macOS overlay; turning it off brings it back.
+- [ ] Turning on "Hide the system volume overlay" in the menu bar stops the macOS overlay; turning it off brings it back.
 - [ ] Quitting with the overlay replaced restores it — check the volume keys still show the system overlay afterwards.
 - [ ] "Settings…" in the menu bar opens a window, and opening it again brings the same window forward.
 - [ ] Dragging a module in the Modules tab reorders the tab strip in the notch straight away.

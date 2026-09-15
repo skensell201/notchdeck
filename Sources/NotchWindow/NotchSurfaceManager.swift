@@ -35,6 +35,18 @@ public final class NotchSurfaceManager {
     /// display waking while a drop is falling — comes back showing it.
     private var drop: PeekPayload?
 
+    /// Settable for the same reason as `appearance`, and pushed to every surface
+    /// rather than read from a preference by each of them: the shell knows how
+    /// wide to draw, not where the choice is stored.
+    public var showsLiveContentWhenClosed: Bool {
+        didSet {
+            guard showsLiveContentWhenClosed != oldValue else { return }
+            for surface in surfaces.values {
+                surface.update(showsLiveContentWhenClosed: showsLiveContentWhenClosed)
+            }
+        }
+    }
+
     /// One drag-handling seam for every surface, present and future. Each surface
     /// forwards to these at call time, so they may be assigned after `init`.
     public var onDragEntered: (() -> Void)?
@@ -45,11 +57,13 @@ public final class NotchSurfaceManager {
     public init(
         registry: ModuleRegistry,
         syntheticSize: CGSize = CGSize(width: 220, height: 32),
-        appearance: NotchAppearance = NotchAppearance()
+        appearance: NotchAppearance = NotchAppearance(),
+        showsLiveContentWhenClosed: Bool = false
     ) {
         self.registry = registry
         self.syntheticSize = syntheticSize
         self.appearance = appearance
+        self.showsLiveContentWhenClosed = showsLiveContentWhenClosed
         rebuild()
         observer = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -119,6 +133,7 @@ public final class NotchSurfaceManager {
         for surface in surfaces.values {
             surface.update(mode: mode)
             surface.update(drop: drop)
+            surface.update(showsLiveContentWhenClosed: showsLiveContentWhenClosed)
         }
 
         logger.notice("rebuilt \(self.surfaces.count, privacy: .public) notch surfaces")

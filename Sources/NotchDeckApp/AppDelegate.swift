@@ -85,7 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let surfaces = NotchSurfaceManager(
             registry: registry,
             syntheticSize: preferences.syntheticNotchSize,
-            appearance: preferences.notchAppearance
+            appearance: preferences.notchAppearance,
+            showsLiveContentWhenClosed: preferences.showLiveContentWhenClosed
         )
         self.surfaces = surfaces
 
@@ -219,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(settingsItem)
 
         let suppress = NSMenuItem(
-            title: "Replace the system volume overlay",
+            title: "Hide the system volume overlay",
             action: #selector(toggleVolumeHUD),
             keyEquivalent: ""
         )
@@ -267,6 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 controller.timing = preferences.timing
                 surfaces.syntheticSize = preferences.syntheticNotchSize
                 surfaces.appearance = preferences.notchAppearance
+                surfaces.showsLiveContentWhenClosed = preferences.showLiveContentWhenClosed
                 if hud.isEnabled != preferences.suppressVolumeHUD {
                     hud.isEnabled = preferences.suppressVolumeHUD
                 }

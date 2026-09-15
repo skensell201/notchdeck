@@ -14,6 +14,11 @@ public final class NotchViewModel {
     /// The announcement currently falling out of the notch, if any. Independent
     /// of `mode`: it hangs under a collapsed band and under an open panel alike.
     public var drop: PeekPayload?
+    /// Whether live module content widens the collapsed band. Off by default:
+    /// the band a track title needs is three times the notch, and it stays that
+    /// wide for as long as the music plays. Opening the panel shows the same
+    /// content, so nothing is lost by keeping the collapsed shape honest.
+    public var showsLiveContentWhenClosed = false
 
     /// Size of the fully expanded panel content.
     public let openSize: CGSize
@@ -81,7 +86,7 @@ public final class NotchViewModel {
     /// hover region grows with the band.
     public var targetSize: CGSize {
         switch mode {
-        case .closed where registry.hasLiveContent:
+        case .closed where showsLiveContentWhenClosed && registry.hasLiveContent:
             peekSize
         case .closed:
             closedSize

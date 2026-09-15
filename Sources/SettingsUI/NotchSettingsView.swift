@@ -50,6 +50,16 @@ struct NotchSettingsView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                Toggle("Widen the notch for what is playing", isOn: liveContent)
+            } header: {
+                Text("Collapsed notch")
+            } footer: {
+                Text("Off, the notch keeps its own shape whatever is playing, and the track shows when you open it. On, it stays about three times its width for as long as there is something live to show — a playing track or a running timer.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .onAppear { displays = inventory.displays }
@@ -60,6 +70,13 @@ struct NotchSettingsView: View {
 
     /// Turning the tint off clears the stored colour rather than remembering it:
     /// a panel that is black again should look black to the next launch too.
+    private var liveContent: Binding<Bool> {
+        Binding(
+            get: { preferences.showLiveContentWhenClosed },
+            set: { preferences.showLiveContentWhenClosed = $0 }
+        )
+    }
+
     private var tintIsOn: Binding<Bool> {
         Binding(
             get: { preferences.notchTint != nil },

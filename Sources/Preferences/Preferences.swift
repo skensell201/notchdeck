@@ -26,6 +26,7 @@ public final class Preferences {
         public static let exitGraceMilliseconds = "ExitGraceMilliseconds"
         public static let suppressVolumeHUD = "SuppressSystemVolumeHUD"
         public static let dismissWithEscape = "DismissWithEscape"
+        public static let showLiveContentWhenClosed = "ShowLiveContentWhenClosed"
         public static let notchTintRed = "NotchTintRed"
         public static let notchTintGreen = "NotchTintGreen"
         public static let notchTintBlue = "NotchTintBlue"
@@ -57,6 +58,7 @@ public final class Preferences {
     private var storedExitGrace: Int
     private var storedSuppressVolumeHUD: Bool
     private var storedDismissWithEscape: Bool
+    private var storedShowLiveContentWhenClosed: Bool
     private var storedClipboardCapacity: Int
     private var storedClipboardExclusions: [String]
 
@@ -95,6 +97,7 @@ public final class Preferences {
         storedExitGrace = Self.clamp(defaults.object(forKey: Key.exitGraceMilliseconds) as? Int ?? 220, Range.exitGraceMilliseconds)
         storedSuppressVolumeHUD = defaults.bool(forKey: Key.suppressVolumeHUD)
         storedDismissWithEscape = defaults.bool(forKey: Key.dismissWithEscape)
+        storedShowLiveContentWhenClosed = defaults.bool(forKey: Key.showLiveContentWhenClosed)
         storedClipboardCapacity = Self.clamp(defaults.object(forKey: Key.clipboardCapacity) as? Int ?? 60, Range.clipboardCapacity)
         storedClipboardExclusions = defaults.stringArray(forKey: Key.clipboardExclusions) ?? []
     }
@@ -189,6 +192,20 @@ public final class Preferences {
         set {
             storedDismissWithEscape = newValue
             defaults.set(newValue, forKey: Key.dismissWithEscape)
+        }
+    }
+
+    /// Whether a module with something live to show — a playing track, a running
+    /// timer — widens the collapsed notch to say so.
+    ///
+    /// Off by default. The widened band is three times the notch and reads as a
+    /// black bar laid across the menu bar rather than as the notch, and it stays
+    /// there for as long as the music plays.
+    public var showLiveContentWhenClosed: Bool {
+        get { storedShowLiveContentWhenClosed }
+        set {
+            storedShowLiveContentWhenClosed = newValue
+            defaults.set(newValue, forKey: Key.showLiveContentWhenClosed)
         }
     }
 
