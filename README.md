@@ -148,11 +148,13 @@ rendering or windowing:
 - [ ] Birthdays do not appear in the calendar list; meetings that ended more than fifteen minutes ago do not either.
 - [ ] The Shortcuts tab lists your shortcuts and running one works; with no shortcuts saved the list is empty, which is correct.
 - [ ] All eight tabs fit either side of the camera housing and none is hidden behind it.
-- [ ] Changing the volume shows a level bar in the collapsed notch, one announcement per press.
-- [ ] Muting shows a distinct symbol and no bar.
 - [ ] Plugging and unplugging the charger announces itself.
-- [ ] Connecting AirPods or another output device announces its name.
-- [ ] An announcement arriving while the panel is open does not interrupt it.
+- [ ] Connecting AirPods or another audio device sags the notch and drops a capsule with the device's name under it; disconnecting does the same and says so.
+- [ ] Putting Bluetooth headphones back on announces them even though they never left the device list.
+- [ ] One drop per action: connecting announces once, not once for the device and once for the sound moving to it.
+- [ ] A drop arriving while the panel is open falls out of the panel and leaves it open.
+- [ ] Hovering the notch while a drop is falling does not cut it short.
+- [ ] The gap between the notch and a hanging drop is not clickable — a window under it still takes the click.
 - [ ] Turning on "Replace the system volume overlay" in the menu bar stops the macOS overlay; turning it off brings it back.
 - [ ] Quitting with the overlay replaced restores it — check the volume keys still show the system overlay afterwards.
 - [ ] "Settings…" in the menu bar opens a window, and opening it again brings the same window forward.
@@ -182,7 +184,7 @@ rendering or windowing:
 | `Mirror` | Camera preview with a mirrored image |
 | `Shortcuts` | Shortcuts launcher: list, pin, run |
 | `Agenda` | Calendar: upcoming events and meeting links |
-| `LiveActivities` | Power, volume and audio-output announcements |
+| `LiveActivities` | Power and audio-device announcements |
 | `SystemHUD` | Suppressing the system volume overlay |
 | `Preferences` | Stored settings, clamped, and the login item |
 | `SettingsUI` | The settings window: general, modules, notch, permissions |
