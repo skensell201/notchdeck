@@ -1,0 +1,85 @@
+# Manual verification
+
+`NotchUI` and `NotchWindow` have no automated tests by design — this checklist is
+their entire verification story. Run through it by hand, on a MacBook with at
+least one external display attached, before merging any change that touches
+rendering or windowing:
+
+- [ ] The menu bar item appears and its menu opens.
+- [ ] A black notch surface sits at the top centre of the built-in display, matching the physical notch.
+- [ ] A synthetic notch of the same shape appears at the top centre of the external display.
+- [ ] Moving the pointer onto the notch expands it after a short dwell; moving away collapses it.
+- [ ] Scrolling down over the notch expands it immediately; scrolling up collapses it.
+- [ ] Clicking the expanded notch pins it; clicking elsewhere on screen collapses it.
+- [ ] Clicking anywhere outside the visible black shape — including the strip of screen the panel covers but does not draw on — activates the app underneath.
+- [ ] The notch stays visible after switching Spaces and above a full-screen window.
+- [ ] Unplugging and replugging the external display leaves exactly one notch per screen.
+- [ ] Changing a connected display's resolution (or scale/arrangement) moves and resizes its notch to match the new geometry, rather than leaving it at the old coordinates.
+- [ ] "Quit NotchDeck" terminates the process and removes every surface.
+- [ ] The menu bar under the panel still works — menu titles open, status icons and Control Center respond. (The panel sits above the menu bar and reserves 620×200 across the top centre of every screen, so a click-through regression shows up here first.)
+- [ ] Scrolling over an ordinary window still scrolls that window.
+- [ ] Attaching a display while the notch is open gives the new display an open notch too, not a collapsed one.
+- [ ] Running `Contents/MacOS/NotchDeck` directly while an instance is already running is not a supported path; use `./Scripts/run.sh`.
+- [ ] On a dark wallpaper the collapsed notch is visible enough to aim at.
+- [ ] On a light wallpaper the expanded panel has a clear edge and does not look pasted on.
+- [ ] No glow or bright line appears above the panel, across the menu bar or the bezel.
+- [ ] Clicks still pass through the reserved margin around the panel — the bloom must not swallow them.
+- [ ] With music playing in any app — Music, Spotify, a browser tab — the collapsed notch shows its artwork and an animated indicator.
+- [ ] Opening the notch shows the track's artwork, title and artist, a scrubber that advances once a second, and working previous / play-pause / next.
+- [ ] Dragging the scrubber seeks the track on release.
+- [ ] Pausing in the source app is reflected within a second, and the visualiser rests.
+- [ ] A two-finger horizontal swipe over the notch changes track.
+- [ ] Stopping playback entirely makes the peek disappear after the staleness window, without the panel losing the track.
+- [ ] With nothing ever played since login, the panel says "Nothing playing" rather than showing a stale track.
+- [ ] Quitting cleanly — menu or `pkill -x NotchDeck` — with nothing playing leaves no orphaned `perl` process: `pgrep -f mediaremote-adapter` is empty within a couple of seconds.
+- [ ] After `kill -9` of a running instance, the orphaned `perl` survives; the next launch reaps it, and `pgrep -fl mediaremote-adapter` then shows exactly one `perl`, the new instance's.
+- [ ] Hovering the widened peek band (not just the bare notch) opens the panel.
+- [ ] With a track playing, `kill -9` the `perl` adapter process (not the app); the peek recovers within a few seconds.
+- [ ] Launching with a track that has been paused for more than 90 s shows no peek; the expanded panel still shows the track.
+- [ ] A two-finger swipe **left** over the notch skips to the next track; right goes to the previous one.
+- [ ] Media-key fallback: rename `Contents/Frameworks/MediaRemoteAdapter.framework` inside a built bundle so the probe fails, relaunch, and confirm the transport buttons still control playback. If they do not, note that synthesising media keys needs Accessibility permission on this macOS.
+- [ ] Dragging a file from Finder onto the collapsed notch opens it and switches to the Shelf tab mid-drag.
+- [ ] Dragging away without dropping closes the notch after the grace period.
+- [ ] Dropping one or several files adds a tile per file, newest drop first, original order within a drop.
+- [ ] A tile drags back out to the Desktop and Finder copies the real file.
+- [ ] Right-clicking a tile offers Reveal in Finder, Quick Look, Copy and Remove, and each works.
+- [ ] Quitting and relaunching keeps the shelf; a file deleted meanwhile shows dimmed rather than vanishing.
+- [ ] Dropping onto the AirDrop zone highlights it during the drag and opens the AirDrop picker on release.
+- [ ] Clicking the AirDrop zone with items on the shelf offers all of them.
+- [ ] Clear asks for confirmation and empties the shelf without touching the files.
+- [ ] Copying text in any app adds it to the Clipboard tab within about half a second; clicking an entry copies it back.
+- [ ] Copying from a password manager adds nothing to the history.
+- [ ] A pinned clipboard entry survives Clear and survives the history filling up.
+- [ ] Starting the timer and closing the notch leaves the countdown visible in the collapsed band.
+- [ ] A finished pomodoro phase chimes and moves to the next phase on its own.
+- [ ] The Stats tab shows battery, CPU, memory and network, and the numbers move.
+- [ ] Network throughput may read as unknown for a couple of seconds every few hours — that is the 32-bit counter wrapping, not a bug.
+- [ ] Opening the Mirror tab asks for camera access once, then shows a mirrored preview; the camera light goes out when the notch closes.
+- [ ] Denying camera access leaves a button that opens the right System Settings pane.
+- [ ] Opening the Calendar tab asks for calendar access once, then lists today and the next few days.
+- [ ] A meeting with a Zoom, Meet, Teams or Webex link shows a join button that opens it.
+- [ ] Birthdays do not appear in the calendar list; meetings that ended more than fifteen minutes ago do not either.
+- [ ] The Shortcuts tab lists your shortcuts and running one works; with no shortcuts saved the list is empty, which is correct.
+- [ ] All eight tabs fit either side of the camera housing and none is hidden behind it.
+- [ ] With music playing, the collapsed notch keeps its own shape; "Widen the notch for what is playing" in Settings → Notch brings the wide band back.
+- [ ] Plugging and unplugging the charger announces itself.
+- [ ] Connecting AirPods or another audio device sags the notch and drops a capsule with the device's name under it; disconnecting does the same and says so.
+- [ ] Putting Bluetooth headphones back on announces them even though they never left the device list.
+- [ ] One drop per action: connecting announces once, not once for the device and once for the sound moving to it.
+- [ ] A drop arriving while the panel is open falls out of the panel and leaves it open.
+- [ ] Hovering the notch while a drop is falling does not cut it short.
+- [ ] The gap between the notch and a hanging drop is not clickable — a window under it still takes the click.
+- [ ] Turning on "Hide the system volume overlay" in the menu bar stops the macOS overlay; turning it off brings it back.
+- [ ] Quitting with the overlay replaced restores it — check the volume keys still show the system overlay afterwards.
+- [ ] "Settings…" in the menu bar opens a window, and opening it again brings the same window forward.
+- [ ] Dragging a module in the Modules tab reorders the tab strip in the notch straight away.
+- [ ] Unchecking a module removes its tab; unchecking all of them leaves an explanation, not an empty frame.
+- [ ] Changing the hover dwell changes how long the notch waits, without relaunching.
+- [ ] Changing the synthetic notch size resizes the notch on an external display, without relaunching.
+- [ ] The volume-overlay switch in Settings and the menu bar item agree with each other.
+- [ ] The Permissions tab shows camera and calendar status and each button opens the right pane.
+- [ ] Launch at login turns on when the app is in /Applications, and explains itself when it is not.
+- [ ] Quitting and relaunching keeps the module order and everything else set in the window.
+- [ ] With "Dismiss with Esc" on and Accessibility granted, Esc closes a pinned notch.
+- [ ] `./Scripts/make-dmg.sh` produces a disk image that mounts and installs by dragging.
+- [ ] The installed app shows the NotchDeck icon in Finder, in Launchpad and in the Settings window.

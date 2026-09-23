@@ -8,7 +8,7 @@
 
 **Tech Stack:** Swift 6 (language mode v6, strict concurrency), SwiftPM, swift-testing, SwiftUI, `Foundation.Process`, `ungive/mediaremote-adapter` v0.7.6 (BSD 3-Clause).
 
-**Spec:** [`docs/superpowers/specs/2026-09-02-p1-media-and-shelf-design.md`](../specs/2026-09-02-p1-media-and-shelf-design.md)
+**Spec:** [`docs/specs/2026-09-02-p1-media-and-shelf-design.md`](../specs/2026-09-02-p1-media-and-shelf-design.md)
 
 ---
 

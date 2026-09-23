@@ -8,7 +8,7 @@
 
 **Tech Stack:** Swift 6, SwiftPM, swift-testing, SwiftUI, AppKit drag and drop (`NSDraggingDestination`), `URL.bookmarkData`, `NSSharingService`, `QLPreviewPanel`.
 
-**Spec:** [`docs/superpowers/specs/2026-09-02-p1-media-and-shelf-design.md`](../specs/2026-09-02-p1-media-and-shelf-design.md), section 4.
+**Spec:** [`docs/specs/2026-09-02-p1-media-and-shelf-design.md`](../specs/2026-09-02-p1-media-and-shelf-design.md), section 4.
 
 ---
 
@@ -1074,7 +1074,7 @@ git commit -m "feat: add the AirDrop drop zone"
 
 **Files:**
 - Modify: `README.md`
-- Modify: `docs/superpowers/specs/2026-09-02-p1-media-and-shelf-design.md` (section 4.3, drag-out mechanism)
+- Modify: `docs/specs/2026-09-02-p1-media-and-shelf-design.md` (section 4.3, drag-out mechanism)
 
 - [ ] **Step 1: Spec amendment**
 
