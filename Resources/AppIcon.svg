@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- NotchDeck app icon. Full-bleed on purpose: macOS masks the icon into its
+       own squircle, so a plate drawn here would sit inside the system's one.
+       Render with Scripts/make-icon.sh, then commit the .icns alongside. -->
+  <defs>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2A2F5C"/>
+      <stop offset="0.55" stop-color="#15172E"/>
+      <stop offset="1" stop-color="#08090F"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="512" cy="520" r="460" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8E7BFF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#8E7BFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cardBlue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4DA3FF"/><stop offset="1" stop-color="#1F5BFF"/>
+    </linearGradient>
+    <linearGradient id="cardOrange" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFC24A"/><stop offset="1" stop-color="#FF7A1A"/>
+    </linearGradient>
+    <linearGradient id="cardPink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF5C8A"/><stop offset="1" stop-color="#C2338F"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#screen)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+
+  <!-- The deck: three module cards fanned out of the notch. -->
+  <g filter="url(#shadow)">
+    <g transform="rotate(-17 512 1040)">
+      <rect x="357" y="360" width="310" height="420" rx="72" fill="url(#cardBlue)"/>
+      <rect x="357" y="360" width="310" height="420" rx="72" fill="url(#sheen)"/>
+    </g>
+    <g transform="rotate(17 512 1040)">
+      <rect x="357" y="360" width="310" height="420" rx="72" fill="url(#cardOrange)"/>
+      <rect x="357" y="360" width="310" height="420" rx="72" fill="url(#sheen)"/>
+    </g>
+    <g>
+      <rect x="352" y="320" width="320" height="460" rx="76" fill="url(#cardPink)"/>
+      <rect x="352" y="320" width="320" height="460" rx="76" fill="url(#sheen)"/>
+      <!-- Now playing: an equaliser, the module the notch shows most. -->
+      <g fill="#FFFFFF">
+        <rect x="418" y="560" width="40" height="120" rx="20"/>
+        <rect x="492" y="480" width="40" height="200" rx="20"/>
+        <rect x="566" y="525" width="40" height="155" rx="20"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- The notch: flush with the top edge, with the inverse fillets where it
+       meets the screen, the way the real one does. -->
+  <path fill="#000000" d="M 226 0 A 40 40 0 0 1 266 40 L 266 150 A 80 80 0 0 0 346 230
+                          L 678 230 A 80 80 0 0 0 758 150 L 758 40 A 40 40 0 0 1 798 0 Z"/>
+  <!-- Camera dot, so it reads as the notch and not a black bar. -->
+  <circle cx="512" cy="120" r="20" fill="#1A1D33"/>
+  <circle cx="512" cy="120" r="8" fill="#3A4A8A"/>
+</svg>
