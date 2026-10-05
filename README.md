@@ -106,7 +106,7 @@ System Settings pane.
 - [Development](docs/DEVELOPMENT.md) — building from source, project layout, releasing
 - [Manual testing](docs/TESTING.md) — the checklist for UI and windowing changes
 - [Changelog](CHANGELOG.md)
-- [Design specs](docs/specs/) and [implementation plans](docs/plans/)
+- [Design specs](docs/specs/)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 ## Acknowledgements

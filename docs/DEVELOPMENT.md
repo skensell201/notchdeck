@@ -41,7 +41,7 @@ adapter subprocess.
 | `Scripts/run.sh` | Bundles and launches, replacing a running instance |
 | `Scripts/build-media-adapter.sh` | Builds the vendored MediaRemote adapter framework |
 | `Scripts/make-dmg.sh` | Builds a release and writes `build/NotchDeck-<version>.dmg` |
-| `Scripts/make-icon.sh` | Renders `Resources/AppIcon.svg` into `Resources/AppIcon.icns` |
+| `Scripts/make-icon.sh` | Renders `Resources/AppIcon.svg` into `Resources/AppIcon.icns` and `Resources/StatusIcon.svg` into `Resources/StatusIcon.pdf` |
 
 ## Project layout
 
@@ -69,7 +69,7 @@ Other directories:
 
 - `Resources/` — `Info.plist`, the icon source (`AppIcon.svg`) and the rendered `AppIcon.icns`
 - `ThirdParty/mediaremote-adapter/` — vendored now-playing adapter (BSD 3-Clause)
-- `docs/specs/`, `docs/plans/` — design specs and implementation plans
+- `docs/specs/` — design specs
 
 ## Testing
 

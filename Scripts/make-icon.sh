@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Renders Resources/AppIcon.svg into Resources/AppIcon.icns.
+# Renders Resources/AppIcon.svg into Resources/AppIcon.icns, and the menu bar
+# template Resources/StatusIcon.svg into Resources/StatusIcon.pdf.
 #
-# The icon is drawn as an SVG rather than checked in as a binary blob nobody can
-# edit: a tweak is a diff. Run this after changing the SVG, then commit the
-# regenerated .icns alongside. Needs rsvg-convert (`brew install librsvg`).
+# The icons are drawn as SVG rather than checked in as a binary blob nobody can
+# edit: a tweak is a diff. Run this after changing either SVG, then commit
+# the regenerated .icns and .pdf alongside. Needs rsvg-convert (`brew install librsvg`).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,3 +25,9 @@ done
 
 iconutil -c icns "$ICONSET" -o "$OUT"
 echo "$OUT"
+
+# Vector, so the menu bar draws it sharp at any scale. At 72 dpi one SVG unit is
+# one point, which makes the 18-unit canvas an 18-point glyph.
+STATUS="$ROOT/Resources/StatusIcon.pdf"
+rsvg-convert -f pdf --dpi-x 72 --dpi-y 72 "$ROOT/Resources/StatusIcon.svg" -o "$STATUS"
+echo "$STATUS"

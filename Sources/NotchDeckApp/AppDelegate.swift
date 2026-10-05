@@ -198,12 +198,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         monitor?.stop()
     }
 
+    /// The notch and its deck, from Resources/StatusIcon.svg, as a template so
+    /// the menu bar tints it. Running outside the bundle there is no resource;
+    /// fall back to a stock symbol rather than an empty item nobody can click.
+    private func statusIcon() -> NSImage? {
+        guard let url = Bundle.main.url(forResource: "StatusIcon", withExtension: "pdf"),
+              let image = NSImage(contentsOf: url)
+        else {
+            return NSImage(
+                systemSymbolName: "rectangle.topthird.inset.filled",
+                accessibilityDescription: "NotchDeck"
+            )
+        }
+        image.size = NSSize(width: 18, height: 18)
+        image.isTemplate = true
+        image.accessibilityDescription = "NotchDeck"
+        return image
+    }
+
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(
-            systemSymbolName: "rectangle.topthird.inset.filled",
-            accessibilityDescription: "NotchDeck"
-        )
+        item.button?.image = statusIcon()
 
         let menu = NSMenu()
         menu.addItem(
